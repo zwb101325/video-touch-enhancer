@@ -38,7 +38,7 @@
 
 
 ## 🔗 发布页面
-- [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
+- [**GitHub**](https://github.com/zwb101325/video-touch-enhancer)
 - [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
 
 
