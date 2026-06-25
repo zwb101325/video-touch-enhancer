@@ -39,7 +39,7 @@
 
 ## 🔗 发布页面
 - [**GitHub**](https://github.com/zwb101325/video-touch-enhancer)
-- [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
+- [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/584363)
 
 
 ## ⭐ 支持项目
