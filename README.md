@@ -31,7 +31,7 @@
 
 
 ## 💻 兼容性
-- 适用于 **Bilibili 网页播放器**
+- 适用于主流网页播放器
 - 支持常见浏览器（Edge / Chrome 等）
 - 适用于触屏设备（Surface / Yoga / MateBook 等）
 - 同样支持鼠标操作
