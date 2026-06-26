@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.16
+// @version      0.0.17
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -860,26 +860,19 @@
 
 
     function syncPauseMode(changedKey = "") {
-        if (changedKey === "singleTapPause" && userSettings.singleTapPause) {
-            userSettings.doubleTapPause = false;
-            return;
-        }
+        // if (changedKey === "singleTapPause" && userSettings.singleTapPause) {
+        //     userSettings.doubleTapPause = false;
+        //     return;
+        // }
 
-        if (changedKey === "doubleTapPause" && userSettings.doubleTapPause) {
-            userSettings.singleTapPause = false;
-            return;
-        }
+        // if (changedKey === "doubleTapPause" && userSettings.doubleTapPause) {
+        //     userSettings.singleTapPause = false;
+        //     return;
+        // }
 
-        if (userSettings.singleTapPause && userSettings.doubleTapPause) {
-            userSettings.singleTapPause = false;
-        }
-    }
-
-
-    // 设置变化后，刷新所有已绑定的播放器
-    function refreshAll() {
-        controllers.forEach((c) => setupButtons(c));
-        scheduleScan();
+        // if (userSettings.singleTapPause && userSettings.doubleTapPause) {
+        //     userSettings.singleTapPause = false;
+        // }
     }
 
     // #endregion
@@ -1061,7 +1054,6 @@
                     userSettings = deepMerge(DEFAULT_SETTINGS, {});
                     saveSettings();
                     updateSettingsPanel(panel);
-                    refreshAll();
                     return;
                 }
 
@@ -1076,7 +1068,6 @@
                     syncPauseMode(key);
                     saveSettings();
                     updateSettingsPanel(panel);
-                    refreshAll();
                     return;
                 }
 
@@ -1085,7 +1076,6 @@
                     const key = selectRow.dataset.settingKey;
                     userSettings[key] = e.target.value;
                     saveSettings();
-                    refreshAll();
                     return;
                 }
             });
@@ -1099,7 +1089,6 @@
                     userSettings[key] = value;
                     numberRow.querySelector(".vte-number-txt").textContent = formatNumberText(value, e.target.step, numberRow.dataset.unit);
                     saveSettings();
-                    refreshAll();
                     return;
                 }
             });
