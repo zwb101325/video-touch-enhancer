@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.19
+// @version      0.0.20
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -134,8 +134,6 @@
     };
 
     let userSettings = loadSettings();
-    syncPauseMode();
-
     const controllers = new Map();
     const audioStores = new WeakMap();
     let rafId = null;
@@ -858,23 +856,6 @@
         GM_setValue(SETTINGS_KEY, userSettings);
     }
 
-
-    function syncPauseMode(changedKey = "") {
-        // if (changedKey === "singleTapPause" && userSettings.singleTapPause) {
-        //     userSettings.doubleTapPause = false;
-        //     return;
-        // }
-
-        // if (changedKey === "doubleTapPause" && userSettings.doubleTapPause) {
-        //     userSettings.singleTapPause = false;
-        //     return;
-        // }
-
-        // if (userSettings.singleTapPause && userSettings.doubleTapPause) {
-        //     userSettings.singleTapPause = false;
-        // }
-    }
-
     // #endregion
 
 
@@ -1065,9 +1046,8 @@
                 if (switchRow) {
                     const key = switchRow.dataset.settingKey;
                     userSettings[key] = e.target.checked;
-                    syncPauseMode(key);
                     saveSettings();
-                    updateSettingsPanel(panel);
+                    setupButtons(c);
                     return;
                 }
 
@@ -1076,6 +1056,7 @@
                     const key = selectRow.dataset.settingKey;
                     userSettings[key] = e.target.value;
                     saveSettings();
+                    setupButtons(c);
                     return;
                 }
             });
@@ -1089,6 +1070,7 @@
                     userSettings[key] = value;
                     numberRow.querySelector(".vte-number-txt").textContent = formatNumberText(value, e.target.step, numberRow.dataset.unit);
                     saveSettings();
+                    setupButtons(c);
                     return;
                 }
             });
@@ -1395,9 +1377,8 @@
 
 
     function onQuickSeek(c, seconds) {
-        const video = c.video;
-        if (!video) return;
-        video.currentTime = clamp(video.currentTime + seconds, 0, video.duration || video.currentTime + seconds);
+        if (!c.video) return;
+        c.video.currentTime = clamp(c.video.currentTime + seconds, 0, c.video.duration);
 
         showToast(c, "", `${seconds > 0 ? "+" : "−"} ${Math.abs(seconds)}s`);
         c.toastTimer = resetTimeout(c.toastTimer, () => hideToast(c), TOAST_DELAY);
@@ -1498,14 +1479,9 @@
     // #region 单指双击：播放暂停
     // ============================================================
 
-    function togglePlayPause(c) {
-        if (c.video.paused) {
-            c.video.play().catch(() => {});
-            hideCtrl(c);
-        } else {
-            c.video.pause();
-            showCtrlTemp(c);
-        }
+    function onDoubleTap(c) {
+        if (!c.video) return;
+        c.video.paused ? c.video.play().catch(() => {}) : c.video.pause();
     }
 
     // #endregion
@@ -1516,21 +1492,20 @@
     // #region 单指长按：倍速播放
     // ============================================================
 
-    function onLongPressStart(controller) {
-        const video = controller.video;
-        if (!video) return;
-
-        controller.originalSpeed = video.playbackRate;
-        video.playbackRate = userSettings.targetSpeed;
+    function onLongPressStart(c) {
+        if (!c.video) return;
+        c.originalSpeed = c.video.playbackRate;
+        c.video.playbackRate = userSettings.targetSpeed;
         const targetSpeed = Number(userSettings.targetSpeed);
         const speedText = Number.isInteger(targetSpeed) ? targetSpeed.toFixed(1) : String(targetSpeed);
-        showToast(controller, speedIcon, speedText + "x");
+        showToast(c, speedIcon, speedText + "x");
     }
 
 
-    function onLongPressEnd(controller) {
-        controller.video.playbackRate = controller.originalSpeed;
-        hideToast(controller);
+    function onLongPressEnd(c) {
+        if (!c.video) return;
+        c.video.playbackRate = c.originalSpeed;
+        hideToast(c);
     }
 
     // #endregion
@@ -1542,6 +1517,7 @@
     // ============================================================
 
     function onSeekStart(c, clientX) {
+        if (!c.video) return;
         c.prevX = clientX;
         c.startVal = c.video.currentTime;
         c.wasPlaying = !c.video.paused;
@@ -1551,23 +1527,20 @@
 
 
     function onSeek(c, clientX) {
-        const video = c.video;
-        if (!video) return;
+        if (!c.video) return;
 
-        c.startVal = c.startVal + (clientX - c.prevX) / (c.root.clientWidth * (userSettings.horizontalSens / 100)) * video.duration;
-        c.startVal = clamp(c.startVal, 0, video.duration);
+        c.startVal = c.startVal + (clientX - c.prevX) / (c.root.clientWidth * (userSettings.horizontalSens / 100)) * c.video.duration;
+        c.startVal = clamp(c.startVal, 0, c.video.duration);
         c.prevX = clientX;
-        video.currentTime = c.startVal;
+        c.video.currentTime = c.startVal;
 
-        showToast(c, "", `${formatTime(c.startVal)} / ${formatTime(video.duration)}`);
+        showToast(c, "", `${formatTime(c.startVal)} / ${formatTime(c.video.duration)}`);
     }
 
 
     function onSeekEnd(c) {
-        const video = c.video;
-        if (!video) return;
-
-        if (c.wasPlaying) video.play().catch(() => {});
+        if (!c.video) return;
+        if (c.wasPlaying) c.video.play().catch(() => {});
         hideCtrl(c);
         hideToast(c);
     }
@@ -1795,12 +1768,11 @@
                 c.clickTimer = setTimeout(() => {
                     c.clickTimer = null;
                     setCtrl(c, isCtrlHidden(c));
-                    if (userSettings.singleTapPause) togglePlayPause(c);
                 }, userSettings.clickTimeout);
             } else {
                 clearTimeout(c.clickTimer);
                 c.clickTimer = null;
-                if (userSettings.doubleTapPause) togglePlayPause(c);
+                if (userSettings.doubleTapPause) onDoubleTap(c);
             }
         }
 
