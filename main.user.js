@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.12
+// @version      0.0.13
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -76,6 +76,7 @@
 
     const FULLSCREEN_BUTTON_SIZE = 52;
     const BUTTON_SIZE = 40;
+    const Ctrl_DELAY = 3000;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
 
@@ -1383,15 +1384,15 @@
     // #region 单指单击：控制栏
     // ============================================================
 
-    function showCtrl(controller) {
-        const video = controller.video;
+    function showCtrl(c) {
+        const video = c.video;
         if (!video) return;
-        controller.controlsVisible = true;
+        c.controlsVisible = true;
 
-        clearInterval(controller.ctrlKeepTimer);
-        clearTimeout(controller.ctrlHideTimer);
-        controller.ctrlKeepTimer = null;
-        controller.ctrlHideTimer = null;
+        clearInterval(c.ctrlKeepTimer);
+        clearTimeout(c.ctrlHideTimer);
+        c.ctrlKeepTimer = null;
+        c.ctrlHideTimer = null;
 
         const moveMouse = () => {
             const rect = video.getBoundingClientRect();
@@ -1402,28 +1403,27 @@
         };
 
         moveMouse();
-        controller.ctrlKeepTimer = setInterval(moveMouse, 1000);
+        c.ctrlKeepTimer = setInterval(moveMouse, 1000);
 
-        updateButtons(controller);
+        updateButtons(c);
     }
 
 
-    function showCtrlFor(controller, duration = 3000) {
-        showCtrl(controller);
-        clearTimeout(controller.ctrlHideTimer);
-        controller.ctrlHideTimer = setTimeout(() => { hideCtrl(controller); }, duration);
+    function showCtrlTemp(c) {
+        showCtrl(c);
+        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), Ctrl_DELAY)
     }
 
 
-    function hideCtrl(controller) {
-        const video = controller.video;
+    function hideCtrl(c) {
+        const video = c.video;
         if (!video) return;
-        controller.controlsVisible = false;
+        c.controlsVisible = false;
 
-        clearInterval(controller.ctrlKeepTimer);
-        clearTimeout(controller.ctrlHideTimer);
-        controller.ctrlKeepTimer = null;
-        controller.ctrlHideTimer = null;
+        clearInterval(c.ctrlKeepTimer);
+        clearTimeout(c.ctrlHideTimer);
+        c.ctrlKeepTimer = null;
+        c.ctrlHideTimer = null;
 
         const rect = video.getBoundingClientRect();
         const x = rect.right + 10;
@@ -1431,36 +1431,36 @@
         sendControlMouseEvents(video, "hide", x, y);
         setYouTubeControls(video, false);
 
-        updateButtons(controller);
+        updateButtons(c);
     }
 
 
-    function isPointInVideoRect(controller, x, y) {
-        const video = controller.video;
+    function isPointInVideoRect(c, x, y) {
+        const video = c.video;
         if (!video) return false;
         const rect = video.getBoundingClientRect();
         return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
     }
 
 
-    function updateCtrlByMousePosition(controller, e) {
-        if (controller.isDown || controller.isLocked) return;
+    function updateCtrlByMousePosition(c, e) {
+        if (c.isDown || c.isLocked) return;
         if (e && e.isTrusted === false) return;
-        if (isPointInVideoRect(controller, e.clientX, e.clientY)) {
-            showCtrlFor(controller, 3000);
-        } else if (controller.controlsVisible) {
-            hideCtrl(controller);
+        if (isPointInVideoRect(c, e.clientX, e.clientY)) {
+            showCtrlTemp(c);
+        } else if (c.controlsVisible) {
+            hideCtrl(c);
         }
     }
 
 
-    function isCtrlHidden(controller) {
-        return !controller.controlsVisible;
+    function isCtrlHidden(c) {
+        return !c.controlsVisible;
     }
 
 
-    function setCtrl(controller, visible) {
-        visible ? showCtrlFor(controller, 3000) : hideCtrl(controller);
+    function setCtrl(c, visible) {
+        visible ? showCtrlTemp(c) : hideCtrl(c);
     }
 
     // #endregion
