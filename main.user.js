@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.27
+// @version      0.0.28
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1456,7 +1456,8 @@
         const moveMouse = () => {
             const rect = video.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height * 0.1;
+            // const y = rect.top + rect.height * 0.1;
+            const y = rect.bottom - rect.height * 0.1;
             sendControlMouseEvents(video, "show", x, y);
         };
 
