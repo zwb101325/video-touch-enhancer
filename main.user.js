@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.20
+// @version      0.0.21
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -100,7 +100,6 @@
 
     const DEFAULT_SETTINGS = {
         // 单击
-        singleTapPause: false,
         ctrlDuration: 3,
 
         // 双击
@@ -957,7 +956,6 @@
 
                         <details class="vte-section">
                             <summary>${buildSummaryRow("单击", singleTapIcon, "vte-summary-icon-purple")}</summary>
-                            ${buildSwitchRow("单击暂停", "singleTapPause")}
                             ${buildNumberRow("进度条显示时长", "ctrlDuration", 1, 10, 1, "s")}
                         </details>
 
@@ -1873,7 +1871,7 @@
 
         // 遮罩层手势监听
         shield.addEventListener("pointerdown", (e) => { handleDown(controller, e); shield.setPointerCapture(e.pointerId); }, true);
-        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); if (!controller.isLocked) setCtrl(controller, true); }, true);
+        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); if (!controller.isLocked) { if (controller.isDown) showCtrl(controller); else showCtrlTemp(controller); }, true);
         shield.addEventListener("pointerup", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
         shield.addEventListener("pointercancel", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
 
