@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.11
+// @version      0.0.12
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -125,8 +125,6 @@
         btnSeekStep: 10,
 
         // 通用兼容
-        enableLockButton: true,
-        enableSeekButtons: true,
         mouseDebugMode: true,
         universalCompatMode: true,
     };
@@ -982,8 +980,6 @@
 
                         <details class="vte-section">
                             <summary>${buildSummaryRow("按钮区域", buttonAreaIcon, "vte-summary-icon-red")}</summary>
-                            ${buildSwitchRow("启用锁定按钮", "enableLockButton")}
-                            ${buildSwitchRow("启用快进快退按钮", "enableSeekButtons")}
                             ${buildSelectRow("左侧", "leftButtonAction", BUTTON_ACTIONS)}
                             ${buildSelectRow("右侧", "rightButtonAction", BUTTON_ACTIONS)}
                             ${buildNumberRow("按钮跳转时长", "btnSeekStep", 1, 30, 1, "s")}
@@ -1295,17 +1291,6 @@
 
         let leftAction = userSettings.leftButtonAction ?? DEFAULT_SETTINGS.leftButtonAction;
         let rightAction = userSettings.rightButtonAction ?? DEFAULT_SETTINGS.rightButtonAction;
-
-        if (!userSettings.enableLockButton) {
-            if (leftAction === "lock") leftAction = "none";
-            if (rightAction === "lock") rightAction = "none";
-            c.isLocked = false;
-        }
-
-        if (!userSettings.enableSeekButtons) {
-            if (leftAction === "menu") leftAction = "none";
-            if (rightAction === "menu") rightAction = "none";
-        }
 
         if (c.isLocked && leftAction !== "lock" && rightAction !== "lock") { c.isLocked = false; }
         if (leftAction !== "menu") LEFT_BUTTON_IDS.forEach((id) => c.expandedButtonIds.delete(id));
