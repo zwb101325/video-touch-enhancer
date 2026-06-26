@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.18
+// @version      0.0.19
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1499,13 +1499,11 @@
     // ============================================================
 
     function togglePlayPause(c) {
-        const video = c.video;
-        if (!video) return;
-        
-        if (video.paused) {
-            video.play().catch(() => {});
+        if (c.video.paused) {
+            c.video.play().catch(() => {});
+            hideCtrl(c);
         } else {
-            video.pause();
+            c.video.pause();
             showCtrlTemp(c);
         }
     }
@@ -1548,24 +1546,29 @@
         c.startVal = c.video.currentTime;
         c.wasPlaying = !c.video.paused;
         c.video.pause();
-        setCtrl(c, true);
+        showCtrl(c);
     }
 
 
     function onSeek(c, clientX) {
         const video = c.video;
-        const duration = video.duration || 0;
-        c.startVal = c.startVal + (clientX - c.prevX) / (c.root.clientWidth * (userSettings.horizontalSens / 100)) * duration;
-        c.startVal = clamp(c.startVal, 0, duration);
-        c.prevX = clientX;
-        if (Number.isFinite(c.startVal)) video.currentTime = c.startVal;
+        if (!video) return;
 
-        showToast(c, "", `${formatTime(c.startVal)} / ${formatTime(duration)}`);
+        c.startVal = c.startVal + (clientX - c.prevX) / (c.root.clientWidth * (userSettings.horizontalSens / 100)) * video.duration;
+        c.startVal = clamp(c.startVal, 0, video.duration);
+        c.prevX = clientX;
+        video.currentTime = c.startVal;
+
+        showToast(c, "", `${formatTime(c.startVal)} / ${formatTime(video.duration)}`);
     }
 
 
     function onSeekEnd(c) {
-        if (c.wasPlaying) c.video.play().catch(() => {});
+        const video = c.video;
+        if (!video) return;
+
+        if (c.wasPlaying) video.play().catch(() => {});
+        hideCtrl(c);
         hideToast(c);
     }
 
