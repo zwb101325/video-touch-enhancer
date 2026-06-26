@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.25
+// @version      0.0.26
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -740,7 +740,9 @@
                 clientY: y,
                 view: win
             }));
-        } catch (err) { /* 某些站点禁用合成事件，忽略即可 */ }
+        } catch (err) { 
+            // 某些站点禁用合成事件，忽略即可
+        }
     }
 
 
@@ -783,20 +785,20 @@
 
 
     function setYouTubeControls(video, visible) {
-        const player = video.closest(".html5-video-player, #movie_player");
-        if (!player) return;
+        // const player = video.closest(".html5-video-player, #movie_player");
+        // if (!player) return;
 
-        player.classList.toggle("vte-youtube-controls-visible", visible);
-        player.classList.toggle("vte-youtube-controls-hidden", !visible);
-        player.classList.toggle("ytp-autohide", !visible);
+        // player.classList.toggle("vte-youtube-controls-visible", visible);
+        // player.classList.toggle("vte-youtube-controls-hidden", !visible);
+        // player.classList.toggle("ytp-autohide", !visible);
     }
 
 
     function clearYouTubeControls(video) {
-        const player = video?.closest(".html5-video-player, #movie_player");
-        if (!player) return;
+        // const player = video?.closest(".html5-video-player, #movie_player");
+        // if (!player) return;
 
-        player.classList.remove("vte-youtube-controls-visible", "vte-youtube-controls-hidden");
+        // player.classList.remove("vte-youtube-controls-visible", "vte-youtube-controls-hidden");
     }
 
 
