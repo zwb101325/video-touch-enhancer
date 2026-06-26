@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.22
+// @version      0.0.23
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1871,7 +1871,7 @@
 
         // 遮罩层手势监听
         shield.addEventListener("pointerdown", (e) => { handleDown(controller, e); shield.setPointerCapture(e.pointerId); }, true);
-        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); if (!controller.isLocked) { if (controller.isDown) showCtrl(controller); else showCtrlTemp(controller); }, true);
+        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); if (!controller.isLocked) { controller.isDown ? showCtrl(controller) : showCtrlTemp(controller); }}, true);
         shield.addEventListener("pointerup", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
         shield.addEventListener("pointercancel", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
 
