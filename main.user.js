@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.26
+// @version      0.0.27
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -746,59 +746,113 @@
     }
 
 
-    function getControlEventTargets(video) {
+    // function getControlEventTargets(video) {
+    //     const targets = [];
+    //     const add = (element) => {
+    //         if (element && !targets.includes(element)) targets.push(element);
+    //     };
+
+    //     add(video);
+    //     add(video.parentElement);
+    //     add(video.closest(".html5-video-player"));
+    //     add(video.closest("#movie_player"));
+    //     add(video.closest(".bpx-player-container"));
+    //     add(video.closest(".bpx-player-video-area"));
+    //     add(video.closest("[class*='player']"));
+
+    //     const fullscreenElement = getFullscreenElement();
+    //     if (fullscreenElement && (fullscreenElement === video || fullscreenElement.contains(video))) {
+    //         add(fullscreenElement);
+    //     }
+
+    //     return targets;
+    // }
+
+
+    // function sendControlMouseEvents(video, type, x, y) {
+    //     getControlEventTargets(video).forEach((target) => {
+    //         if (type === "show") {
+    //             sendMouseEvent(target, "mouseenter", x, y);
+    //             sendMouseEvent(target, "mouseover", x, y);
+    //             sendMouseEvent(target, "mousemove", x, y);
+    //         } else {
+    //             sendMouseEvent(target, "mouseleave", x, y);
+    //             sendMouseEvent(target, "mouseout", x, y);
+    //         }
+    //     });
+    //     if (type === "show") sendMouseEvent(document, "mousemove", x, y);
+    // }
+
+
+    function getControlEventTargets(video, x, y) {
         const targets = [];
+        const seen = new WeakSet();
+
         const add = (element) => {
-            if (element && !targets.includes(element)) targets.push(element);
+            if (!element || seen.has(element)) return;
+            seen.add(element);
+            targets.push(element);
         };
 
+        // 1. 视频本身
         add(video);
-        add(video.parentElement);
-        add(video.closest(".html5-video-player"));
-        add(video.closest("#movie_player"));
-        add(video.closest(".bpx-player-container"));
-        add(video.closest(".bpx-player-video-area"));
-        add(video.closest("[class*='player']"));
 
+        // 2. 视频的所有父级容器，不依赖 class / id
+        let parent = video?.parentElement;
+        while (parent) {
+            add(parent);
+
+            // 到 html 就够了，避免继续往上无意义遍历
+            if (parent === document.documentElement) break;
+            parent = parent.parentElement;
+        }
+
+        // 3. 全屏元素兜底
         const fullscreenElement = getFullscreenElement();
         if (fullscreenElement && (fullscreenElement === video || fullscreenElement.contains(video))) {
             add(fullscreenElement);
         }
+
+        // 4. 当前坐标下的元素链
+        // 这个比 querySelectorAll("*") 安全很多，只拿当前鼠标位置真正命中的元素
+        if (
+            Number.isFinite(x) &&
+            Number.isFinite(y) &&
+            x >= 0 &&
+            y >= 0 &&
+            x <= win.innerWidth &&
+            y <= win.innerHeight
+        ) {
+            try {
+                document.elementsFromPoint(x, y).forEach(add);
+            } catch (err) {}
+        }
+
+        // 5. 文档级兜底
+        add(document.body);
+        add(document.documentElement);
+        add(document);
 
         return targets;
     }
 
 
     function sendControlMouseEvents(video, type, x, y) {
-        getControlEventTargets(video).forEach((target) => {
-            if (type === "show") {
+        const targets = getControlEventTargets(video, x, y);
+
+        if (type === "show") {
+            targets.forEach((target) => {
                 sendMouseEvent(target, "mouseenter", x, y);
                 sendMouseEvent(target, "mouseover", x, y);
                 sendMouseEvent(target, "mousemove", x, y);
-            } else {
+            });
+        } else {
+            // hide 时反向发送，更接近“从内部元素离开到外部”的顺序
+            targets.slice().reverse().forEach((target) => {
                 sendMouseEvent(target, "mouseleave", x, y);
                 sendMouseEvent(target, "mouseout", x, y);
-            }
-        });
-        if (type === "show") sendMouseEvent(document, "mousemove", x, y);
-    }
-
-
-    function setYouTubeControls(video, visible) {
-        // const player = video.closest(".html5-video-player, #movie_player");
-        // if (!player) return;
-
-        // player.classList.toggle("vte-youtube-controls-visible", visible);
-        // player.classList.toggle("vte-youtube-controls-hidden", !visible);
-        // player.classList.toggle("ytp-autohide", !visible);
-    }
-
-
-    function clearYouTubeControls(video) {
-        // const player = video?.closest(".html5-video-player, #movie_player");
-        // if (!player) return;
-
-        // player.classList.remove("vte-youtube-controls-visible", "vte-youtube-controls-hidden");
+            });
+        }
     }
 
 
@@ -1404,7 +1458,6 @@
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height * 0.1;
             sendControlMouseEvents(video, "show", x, y);
-            setYouTubeControls(video, true);
         };
 
         moveMouse();
@@ -1428,7 +1481,6 @@
         const x = rect.right + 10;
         const y = rect.bottom + 10;
         sendControlMouseEvents(video, "hide", x, y);
-        setYouTubeControls(video, false);
 
         updateButtons(c);
     }
@@ -1882,7 +1934,6 @@
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
         if (c.onDocumentMouseMove) document.removeEventListener("mousemove", c.onDocumentMouseMove, true);
-        clearYouTubeControls(c.video);
         c.root?.remove();
     }
 
