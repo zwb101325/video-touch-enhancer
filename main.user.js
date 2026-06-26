@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.13
+// @version      0.0.14
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -76,7 +76,6 @@
 
     const FULLSCREEN_BUTTON_SIZE = 52;
     const BUTTON_SIZE = 40;
-    const Ctrl_DELAY = 3000;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
 
@@ -100,6 +99,9 @@
     };
 
     const DEFAULT_SETTINGS = {
+        // 单击
+        ctrlDuration: 3,
+
         // 双击
         doubleTapPause: true,
         clickTimeout: 200,
@@ -117,8 +119,8 @@
         verticalSwipeLeft: "brightness",
         verticalSwipeRight: "volume",
         verticalSens: 50,
-        maxBrightness: 100,
-        maxVolume: 100,
+        maxBrightness: 200,
+        maxVolume: 200,
 
         // 按钮区域
         leftButtonAction: "lock",
@@ -624,6 +626,13 @@
             <path d="M8.5 5L15.5 12L8.5 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>`;
 
+    const singleTapIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M7 6.5L12 11L17 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7 14.5L12 19L17 14.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        `;
+
     const doubleTapIcon = `
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
             <path d="M7 6.5L12 11L17 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -950,6 +959,11 @@
                             <div class="vte-title">网页视频触屏手势 设置</div>
                             <button id="vte-close-button" class="vte-button" type="button" data-action="close">${closeIcon}</button>
                         </div>
+
+                        <details class="vte-section">
+                            <summary>${buildSummaryRow("单击", singleTapIcon, "vte-summary-icon-purple")}</summary>
+                            ${buildNumberRow("进度条显示时长", "ctrlDuration", 1, 10, 1, "s")}
+                        </details>
 
                         <details class="vte-section">
                             <summary>${buildSummaryRow("双击", doubleTapIcon, "vte-summary-icon-purple")}</summary>
@@ -1409,12 +1423,6 @@
     }
 
 
-    function showCtrlTemp(c) {
-        showCtrl(c);
-        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), Ctrl_DELAY)
-    }
-
-
     function hideCtrl(c) {
         const video = c.video;
         if (!video) return;
@@ -1443,6 +1451,22 @@
     }
 
 
+    function isCtrlHidden(c) {
+        return !c.controlsVisible;
+    }
+
+
+    function showCtrlTemp(c) {
+        showCtrl(c);
+        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), userSettings.ctrlDuration * 1000)
+    }
+
+
+    function setCtrl(c, visible) {
+        visible ? showCtrlTemp(c) : hideCtrl(c);
+    }
+
+
     function updateCtrlByMousePosition(c, e) {
         if (c.isDown || c.isLocked) return;
         if (e && e.isTrusted === false) return;
@@ -1451,16 +1475,6 @@
         } else if (c.controlsVisible) {
             hideCtrl(c);
         }
-    }
-
-
-    function isCtrlHidden(c) {
-        return !c.controlsVisible;
-    }
-
-
-    function setCtrl(c, visible) {
-        visible ? showCtrlTemp(c) : hideCtrl(c);
     }
 
     // #endregion
