@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.23
+// @version      0.0.24
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1206,7 +1206,7 @@
                     return;
                 }
                 // 其余操作时保持控制层可见，方便连续点击
-                if (!c.isLocked) setCtrl(c, true);
+                if (!c.isLocked) showCtrlTemp(c);
                 if (act == "menu") {
                     onMenuButtonClick(c, button);
                 } else if (act == "backward") {
@@ -1270,7 +1270,7 @@
     // 更新图标与显隐状态（状态变化时调用）
     function updateButtons(c) {
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
-        const showMainButton = c.isLocked || !isCtrlHidden(c);
+        const showMainButton = c.isLocked || c.isCtrlVisible;
 
         c.root.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             const isExpanded = c.expandedButtonIds.has(button.id);
@@ -1348,10 +1348,10 @@
         c.isLocked = !c.isLocked;
         if (c.isLocked) {
             finishCurrentGesture(c);
-            setCtrl(c, false);
+            hideCtrl(c);
             showToast(c, lockIcon, "已锁定");
         } else {
-            setCtrl(c, true);
+            showCtrlTemp(c);
             showToast(c, unlockIcon, "已解锁");
         }
         c.toastTimer = resetTimeout(c.toastTimer, () => hideToast(c), TOAST_DELAY);
@@ -1393,7 +1393,7 @@
     function showCtrl(c) {
         const video = c.video;
         if (!video) return;
-        c.controlsVisible = true;
+        c.isCtrlVisible = true;
 
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
@@ -1418,7 +1418,7 @@
     function hideCtrl(c) {
         const video = c.video;
         if (!video) return;
-        c.controlsVisible = false;
+        c.isCtrlVisible = false;
 
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
@@ -1435,6 +1435,12 @@
     }
 
 
+    function showCtrlTemp(c) {
+        showCtrl(c);
+        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), userSettings.ctrlDuration * 1000);
+    }
+
+
     function isPointInVideoRect(c, x, y) {
         const video = c.video;
         if (!video) return false;
@@ -1443,28 +1449,12 @@
     }
 
 
-    function isCtrlHidden(c) {
-        return !c.controlsVisible;
-    }
-
-
-    function showCtrlTemp(c) {
-        showCtrl(c);
-        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), userSettings.ctrlDuration * 1000);
-    }
-
-
-    function setCtrl(c, visible) {
-        visible ? showCtrlTemp(c) : hideCtrl(c);
-    }
-
-
     function updateCtrlByMousePosition(c, e) {
         if (c.isDown || c.isLocked) return;
         if (e && e.isTrusted === false) return;
         if (isPointInVideoRect(c, e.clientX, e.clientY)) {
             showCtrlTemp(c);
-        } else if (c.controlsVisible) {
+        } else if (c.isCtrlVisible) {
             hideCtrl(c);
         }
     }
@@ -1765,7 +1755,7 @@
             if (!c.clickTimer) {
                 c.clickTimer = setTimeout(() => {
                     c.clickTimer = null;
-                    setCtrl(c, isCtrlHidden(c));
+                    c.isCtrlVisible ? hideCtrl(c) : showCtrlTemp(c);
                 }, userSettings.clickTimeout);
             } else {
                 clearTimeout(c.clickTimer);
@@ -1821,7 +1811,7 @@
             top: 0;
             left: 0;
             width: 100%;
-            height: 85%;
+            height: 90%;
             background: transparent;
             user-select: none;
             pointer-events: auto;
@@ -1835,7 +1825,7 @@
             shield,
 
             isLocked: false,
-            controlsVisible: false,
+            isCtrlVisible: false,
             expandedButtonIds: new Set(),
 
             // 手势会话状态
