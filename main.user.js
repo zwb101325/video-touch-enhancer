@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.15
+// @version      0.0.16
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -100,6 +100,7 @@
 
     const DEFAULT_SETTINGS = {
         // 单击
+        singleTapPause: false,
         ctrlDuration: 3,
 
         // 双击
@@ -133,6 +134,7 @@
     };
 
     let userSettings = loadSettings();
+    syncPauseMode();
 
     const controllers = new Map();
     const audioStores = new WeakMap();
@@ -857,6 +859,23 @@
     }
 
 
+    function syncPauseMode(changedKey = "") {
+        if (changedKey === "singleTapPause" && userSettings.singleTapPause) {
+            userSettings.doubleTapPause = false;
+            return;
+        }
+
+        if (changedKey === "doubleTapPause" && userSettings.doubleTapPause) {
+            userSettings.singleTapPause = false;
+            return;
+        }
+
+        if (userSettings.singleTapPause && userSettings.doubleTapPause) {
+            userSettings.singleTapPause = false;
+        }
+    }
+
+
     // 设置变化后，刷新所有已绑定的播放器
     function refreshAll() {
         controllers.forEach((c) => setupButtons(c));
@@ -964,6 +983,7 @@
 
                         <details class="vte-section">
                             <summary>${buildSummaryRow("单击", singleTapIcon, "vte-summary-icon-purple")}</summary>
+                            ${buildSwitchRow("单击暂停", "singleTapPause")}
                             ${buildNumberRow("进度条显示时长", "ctrlDuration", 1, 10, 1, "s")}
                         </details>
 
@@ -1053,7 +1073,9 @@
                 if (switchRow) {
                     const key = switchRow.dataset.settingKey;
                     userSettings[key] = e.target.checked;
+                    syncPauseMode(key);
                     saveSettings();
+                    updateSettingsPanel(panel);
                     refreshAll();
                     return;
                 }
@@ -1487,10 +1509,10 @@
     // #region 单指双击：播放暂停
     // ============================================================
 
-    function onDoubleTap(c) {
+    function togglePlayPause(c) {
         const video = c.video;
         if (!video) return;
-        video.paused ? video.play().catch(() => {}) : video.pause()
+        video.paused ? video.play().catch(() => {}) : video.pause();
     }
 
     // #endregion
@@ -1775,13 +1797,34 @@
                 c.clickTimer = setTimeout(() => {
                     c.clickTimer = null;
                     setCtrl(c, isCtrlHidden(c));
+                    if (userSettings.singleTapPause) togglePlayPause(c);
                 }, userSettings.clickTimeout);
             } else {
                 clearTimeout(c.clickTimer);
                 c.clickTimer = null;
-                if (userSettings.doubleTapPause) onDoubleTap(c);
+                if (userSettings.doubleTapPause) togglePlayPause(c);
             }
         }
+
+        // // 无滑动、无长按 → 单击或双击
+        // if (c.gestureType == "" && (c.absX < 10 && c.absY < 10)) {
+        //     if (!userSettings.doubleTapPause) {
+        //         setCtrl(c, isCtrlHidden(c));
+        //         if (userSettings.singleTapPause) togglePlayPause(c);
+        //     } else {
+        //         if (!c.clickTimer) {
+        //             c.clickTimer = setTimeout(() => {
+        //                 c.clickTimer = null;
+        //                 setCtrl(c, isCtrlHidden(c));
+        //                 if (userSettings.singleTapPause) togglePlayPause(c);
+        //             }, userSettings.clickTimeout);
+        //         } else {
+        //             clearTimeout(c.clickTimer);
+        //             c.clickTimer = null;
+        //             togglePlayPause(c);
+        //         }
+        //     }
+        // }
 
         // 手势结束收尾
         if (c.gestureType != "") {
