@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.24
+// @version      0.0.25
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -38,14 +38,14 @@
     })();
 
 
-    function setHTML(el, html) {
-        if (!el) return;
+    function setHTML(element, html) {
+        if (!element) return;
         const value = (html == null) ? "" : String(html);
         try {
-            el.innerHTML = ttPolicy ? ttPolicy.createHTML(value) : value;
+            element.innerHTML = ttPolicy ? ttPolicy.createHTML(value) : value;
         } catch (err) {
             // 极端情况下（强制 Trusted Types 且 policy 被拒）退化为纯文本，至少不让脚本崩溃
-            try { el.textContent = ""; } catch (e) {}
+            try { element.textContent = ""; } catch (e) {}
         }
     }
 
@@ -681,10 +681,7 @@
     // ============================================================
 
     function clamp(value, min, max) {
-        value = Number(value);
-        min = Number(min);
-        max = Number(max);
-        return Math.min(max, Math.max(min, value));
+        return Math.min(Number(max), Math.max(Number(min), Number(value)));
     }
 
 
