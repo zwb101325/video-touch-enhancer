@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.39
+// @version      0.0.40
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -766,11 +766,6 @@
     }
 
 
-    function isRectsOverlap(a, b) {
-        return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom;
-    }
-
-
     function restoreGestureTouchAction(c) {
         const elements = [
             c.video,
@@ -1347,9 +1342,7 @@
                 clientX: x,
                 clientY: y,
             }));
-        } catch { 
-            // 某些站点禁用合成事件，忽略即可
-        }
+        } catch {}
     }
 
 
@@ -1359,18 +1352,11 @@
         
         add(video);
         add(video?.parentElement);
+        add(video?.closest("[id*='video' i]"));
+        add(video?.closest("[class*='video' i]"));
+        add(video?.closest("[id*='player' i]"));
+        add(video?.closest("[class*='player' i]"));
         
-        const selector = "[id*='video' i], [class*='video' i], [id*='player' i], [class*='player' i]";
-        let node = video?.parentElement;
-        let count = 0;
-        let matched;
-        
-        while (node && count < 5 && (matched = node.closest(selector))) {
-            add(matched);
-            count++;
-            node = matched.parentElement;
-        }
-
         const fullscreenElement = getFullscreenElement();
         if (fullscreenElement && (fullscreenElement === video || fullscreenElement?.contains(video))) add(fullscreenElement);
         
@@ -1490,12 +1476,10 @@
 
     function onSeek(c, clientX) {
         if (!c.video) return;
-
         c.startVal = c.startVal + (clientX - c.prevX) / (c.shield.clientWidth * (userSettings.horizontalSens / 100)) * c.video.duration;
         c.startVal = clamp(c.startVal, 0, c.video.duration);
         c.prevX = clientX;
         c.video.currentTime = c.startVal;
-
         showToast(c, "", `${formatTime(c.startVal)} / ${formatTime(c.video.duration)}`);
     }
 
@@ -1760,37 +1744,18 @@
 
 
     // ============================================================
-    // #region 原生控件放行
+    // #region 控件命中与放行判断
     // ============================================================
 
-    let activeController = null;
-    let activePointerId = null;
-    let hoverController = null;
-    let blockNativeClickUntil = 0;
-
-    function getControllerAtPoint(x, y) {
-        const list = Array.from(controllers.values()).reverse();
-
-        for (const c of list) {
-            if (!c?.shield || c.shield.style.display === "none") continue;
-
-            const rect = c.shield.getBoundingClientRect();
-
-            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return c;
-                
-        }
-
-        return null;
-    }
-
-
+    // 判断元素是否属于脚本自己的遮罩、按钮或设置面板。
     function isVteElement(element) {
         if (!(element instanceof Element)) return false;
         return !!element.closest(`#${SHIELD_ID}, #${SETTINGS_PANEL_ID}`);
     }
 
 
-   function isElementVisible(element) {
+    // 判断元素当前是否可见且能接收指针事件。
+    function isElementVisible(element) {
         if (!(element instanceof Element)) return false;
 
         const rect = element.getBoundingClientRect();
@@ -1811,43 +1776,101 @@
     }
 
 
-    function overlapsVideoArea(c, element) {
-        if (!c?.video) return false;
-        if (!(element instanceof Element)) return false;
-        return isRectsOverlap(element.getBoundingClientRect(), c.video.getBoundingClientRect());
+    function isSameSizeAsVideoArea(c, element) {
+        if (!c?.video || !(element instanceof Element)) return false;
+
+        const videoRect = c.video.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        const tolerance = 3;
+
+        return Math.abs(rect.width - videoRect.width) <= tolerance &&
+            Math.abs(rect.height - videoRect.height) <= tolerance &&
+            Math.abs(rect.left - videoRect.left) <= tolerance &&
+            Math.abs(rect.top - videoRect.top) <= tolerance;
     }
 
 
-    function getVideoContainer(video) {
-        let node = video?.parentElement;
+    // 判断元素矩形是否和视频画面区域发生重叠。
+    function overlapsVideoArea(c, element) {
+        if (!c?.video || !(element instanceof Element)) return false;
 
-        while (node && node !== document.body && node !== document.documentElement) {
+        const videoRect = c.video.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+
+        return rect.right > videoRect.left &&
+            rect.left < videoRect.right &&
+            rect.bottom > videoRect.top &&
+            rect.top < videoRect.bottom;
+    }
+
+
+    // 从 video 向上寻找最近的播放器交互容器。
+    function getPlayerContainer(video) {
+        for (let node = video?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
             for (const child of node.children) {
                 if (child === video || child.contains(video)) continue;
                 if (isElementVisible(child)) return node;
             }
-            node = node.parentElement;
         }
 
-        return video?.parentElement || null;
+        const fallback = video?.parentElement || null;
+        console.log("[VTE] getPlayerContainer fallback", { container: fallback, video });
+        return fallback;
     }
 
 
+    // 判断当前点击是否命中了视频区域内应放行的原生控件。
     function isWidgetTarget(c, e) {
-        const videoContainer = getVideoContainer(c.video);
-        if (!videoContainer) return false;
+        const container = getPlayerContainer(c.video);
+        if (!container) return false;
 
         const elements = document.elementsFromPoint(e.clientX, e.clientY);
         for (const element of elements) {
             if (!(element instanceof Element)) continue;
             if (isVteElement(element)) continue;
             if (element === c.video || element.contains(c.video)) continue;
-            if (!videoContainer.contains(element)) continue;
+            if (!container.contains(element)) continue;
             if (!isElementVisible(element)) continue;
+            if (isSameSizeAsVideoArea(c, element)) continue;
             if (!overlapsVideoArea(c, element)) continue;
+
+            console.log(
+                "[VTE] 放行点击的元素：",
+                element.tagName,
+                element.id ? "#" + element.id : "",
+                element.className ? "." + String(element.className).replace(/\s+/g, ".") : "",
+                element
+            );
+
             return true;
         }
         return false;
+    }
+
+
+    function debugClickElement(c, e, label = "click") {
+        console.groupCollapsed(`[VTE] ${label} hit test`);
+
+        console.log("event:", e.type);
+        console.log("x/y:", e.clientX, e.clientY);
+        console.log("eventTarget:", e.target);
+        console.log("video:", c?.video);
+
+        document.elementsFromPoint(e.clientX, e.clientY).forEach((el, index) => {
+            console.log(index, {
+                tag: el.tagName,
+                id: el.id,
+                className: String(el.className),
+                role: el.getAttribute?.("role"),
+                ariaLabel: el.getAttribute?.("aria-label"),
+                dataPurpose: el.getAttribute?.("data-purpose"),
+                pointerEvents: getComputedStyle(el).pointerEvents,
+                rect: el.getBoundingClientRect(),
+                element: el,
+            });
+        });
+
+        console.groupEnd();
     }
 
     // #endregion
@@ -1855,35 +1878,38 @@
 
 
     // ============================================================
-    // #region 全局手势事件接管
+    // #region 全局事件接管
     // ============================================================
 
-    function getVteControllerFromTarget(target) {
-        if (!(target instanceof Element)) return null;
+    let activeController = null;
+    let activePointerId = null;
+    let hoverController = null;
+    let blockNativeClickUntil = 0;
 
-        const shield = target.closest(`#${SHIELD_ID}`);
-        if (!shield) return null;
 
-        for (const c of controllers.values()) {
-            if (c.shield === shield) return c;
+    // 根据坐标找到当前视频区域对应的控制器。
+    function getControllerAtPoint(x, y) {
+        const list = Array.from(controllers.values()).reverse();
+
+        for (const c of list) {
+            if (!c?.shield || c.shield.style.display === "none") continue;
+            const rect = c.shield.getBoundingClientRect();
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return c;
         }
 
         return null;
     }
 
-    function getEventController(e) {
-        if (isVteElement(e.target)) return null;
-        return getControllerAtPoint(e.clientX, e.clientY);
-    }
-
 
     function onGesturePointerDown(e) {
         if (!e.isPrimary || e.button === 2) return;
-
-        const c = getEventController(e);
+        if (isVteElement(e.target)) return;
+        
+        const c = getControllerAtPoint(e.clientX, e.clientY);
         if (!c) return;
 
-        // 点到可见的播放器原生组件时，放行给原生播放器
+        debugClickElement(c, e, "pointerdown");
+
         if (isWidgetTarget(c, e)) return;
 
         activeController = c;
@@ -1908,9 +1934,7 @@
 
         handleUp(c, e);
 
-        if (hadGesture) {
-            blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
-        }
+        if (hadGesture) blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
 
         activeController = null;
         activePointerId = null;
@@ -1918,13 +1942,11 @@
 
 
     function onGestureMouseMove(e) {
-        const vteController = getVteControllerFromTarget(e.target);
-        const c = vteController || getEventController(e);
+        const shield = e.target instanceof Element ? e.target.closest(`#${SHIELD_ID}`) : null;
+        const vteController = shield ? Array.from(controllers.values()).find((c) => c.shield === shield) : null;
+        const c = vteController || (isVteElement(e.target) ? null : getControllerAtPoint(e.clientX, e.clientY));
 
-        if (hoverController && hoverController !== c && !hoverController.isDown && !hoverController.isLocked) {
-            hidePB(hoverController);
-        }
-
+        if (hoverController && hoverController !== c && !hoverController.isDown && !hoverController.isLocked) hidePB(hoverController);
         hoverController = c;
 
         if (!c) return;
@@ -1937,30 +1959,21 @@
         }
 
         if (c.isDown || c.isLocked || e.isTrusted === false) return;
-
-        // 移到播放器原生组件上时，不抢事件
         if (isWidgetTarget(c, e)) return;
 
         showPBTemp(c);
     }
 
 
+    // click / dblclick：保持原来的 500ms 手势保护逻辑
     function onNativeMouseEvent(e) {
-        // auxclick / contextmenu：只要发生在视频区域内，就全部屏蔽
-        if (e.type === "auxclick" || e.type === "contextmenu") {
-            if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e);
-            return;
-        }
-
-        // click / dblclick：保持原来的 500ms 手势保护逻辑
-        if (Date.now() > blockNativeClickUntil) return;
-
-        const c = getEventController(e);
+        const c = isVteElement(e.target) ? null : getControllerAtPoint(e.clientX, e.clientY);
         if (!c) return;
         if (isWidgetTarget(c, e)) return;
-
+        if (Date.now() > blockNativeClickUntil) return;
         blockNativeEvent(e);
     }
+
 
     function bindGestureEvents() {
         if (bindGestureEvents.bound) return;
@@ -1975,8 +1988,8 @@
 
         document.addEventListener("click", onNativeMouseEvent, true);
         document.addEventListener("dblclick", onNativeMouseEvent, true);
-        document.addEventListener("auxclick", onNativeMouseEvent, true);
-        document.addEventListener("contextmenu", onNativeMouseEvent, true);
+        document.addEventListener("auxclick", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
+        document.addEventListener("contextmenu", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
     }
 
     // #endregion
