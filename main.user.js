@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.35
+// @version      0.0.36
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -765,23 +765,6 @@
     }
 
 
-    function sendMouseEvent(element, type, x = 0, y = 0) {
-        if (!element) return;
-        try {
-            element.dispatchEvent(new win.MouseEvent(type, {
-                bubbles: true,
-                cancelable: true,
-                composed: true,
-                view: win,
-                clientX: x,
-                clientY: y,
-            }));
-        } catch { 
-            // 某些站点禁用合成事件，忽略即可
-        }
-    }
-
-
     // 以遮罩层（覆盖在视频上的容器）为基准判断左右半屏
     function getGestureZone(refEl, clientX) {
         const rect = refEl.getBoundingClientRect();
@@ -800,6 +783,38 @@
     function resetTimeout(timer, callback, delay) {
         clearTimeout(timer);
         return setTimeout(callback, delay);
+    }
+
+
+    function setGestureTouchAction(c) {
+        const elements = [
+            c.video,
+            c.video?.parentElement,
+            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
+        ];
+
+        elements.forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            if (el.dataset.vteOldTouchAction == null) {
+                el.dataset.vteOldTouchAction = el.style.touchAction || "";
+            }
+            el.style.touchAction = "none";
+        });
+    }
+
+
+    function restoreGestureTouchAction(c) {
+        const elements = [
+            c.video,
+            c.video?.parentElement,
+            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
+        ];
+
+        elements.forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            el.style.touchAction = el.dataset.vteOldTouchAction || "";
+            delete el.dataset.vteOldTouchAction;
+        });
     }
 
     // #endregion
@@ -1359,6 +1374,23 @@
     // #region 单指单击：进度条
     // ============================================================
 
+    function sendMouseEvent(element, type, x = 0, y = 0) {
+        if (!element) return;
+        try {
+            element.dispatchEvent(new win.MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                view: win,
+                clientX: x,
+                clientY: y,
+            }));
+        } catch { 
+            // 某些站点禁用合成事件，忽略即可
+        }
+    }
+
+
     function getMouseEventTargets(video) {
         const targets = [];
         const add = (element) => { if (element?.dispatchEvent && !targets.includes(element)) targets.push(element); };
@@ -1845,21 +1877,17 @@
         return false;
     }
 
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 全局手势事件接管
+    // ============================================================
 
     function getEventController(e) {
         if (isVteElement(e.target)) return null;
         return getControllerAtPoint(e.clientX, e.clientY);
-    }
-
-
-    function isActiveGestureEvent(e) {
-        return activeController && e.pointerId === activePointerId;
-    }
-
-
-    function clearActiveGesture() {
-        activeController = null;
-        activePointerId = null;
     }
 
 
@@ -1881,15 +1909,25 @@
 
 
     function onGesturePointerMove(e) {
-        if (!isActiveGestureEvent(e)) return;
+        if (!activeController || e.pointerId !== activePointerId) return;
         handleMove(activeController, e);
     }
 
 
     function onGesturePointerEnd(e) {
-        if (!isActiveGestureEvent(e)) return;
-        handleUp(activeController, e);
-        clearActiveGesture();
+        if (!activeController || e.pointerId !== activePointerId) return;
+
+        const c = activeController;
+        const hadGesture = c.gestureType !== "";
+
+        handleUp(c, e);
+
+        if (hadGesture) {
+            blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+        }
+
+        activeController = null;
+        activePointerId = null;
     }
 
 
@@ -1912,23 +1950,22 @@
     }
 
 
-    function shouldBlockNativeClick(e) {
-        if (Date.now() > blockNativeClickUntil) return false;
+    function onNativeMouseEvent(e) {
+        // auxclick / contextmenu：只要发生在视频区域内，就全部屏蔽
+        if (e.type === "auxclick" || e.type === "contextmenu") {
+            if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e);
+            return;
+        }
+
+        // click / dblclick：保持原来的 500ms 手势保护逻辑
+        if (Date.now() > blockNativeClickUntil) return;
 
         const c = getEventController(e);
-        if (!c) return false;
-        if (isPlayerWidgetTarget(c, e)) return false;
-
-        return true;
-    }
-
-
-    function onNativeMouseEvent(e) {
-        if (!shouldBlockNativeClick(e)) return;
+        if (!c) return;
+        if (isPlayerWidgetTarget(c, e)) return;
 
         blockNativeEvent(e);
     }
-
 
     function bindGestureEvents() {
         if (bindGestureEvents.bound) return;
@@ -2037,6 +2074,7 @@
         // shield.addEventListener("auxclick", (e) => blockNativeEvent(e), true);
         // shield.addEventListener("contextmenu", (e) => blockNativeEvent(e), true);
 
+        setGestureTouchAction(c);
         document.body.appendChild(root);
         setupButtons(c);
         return c;
@@ -2049,6 +2087,7 @@
         clearTimeout(c.toastTimer);
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
+        restoreGestureTouchAction(c);
         c.root?.remove();
     }
 
