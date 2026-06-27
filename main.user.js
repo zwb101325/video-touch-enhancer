@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.29
+// @version      0.0.30
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -765,6 +765,9 @@
     //         add(fullscreenElement);
     //     }
 
+    //     add(document.body);
+    //     add(document.documentElement);
+    //     add(document);
     //     return targets;
     // }
 
@@ -784,75 +787,41 @@
     // }
 
 
-    function getControlEventTargets(video, x, y) {
+    function getControlEventTargets(video) {
         const targets = [];
-        const seen = new WeakSet();
-
         const add = (element) => {
-            if (!element || seen.has(element)) return;
-            seen.add(element);
-            targets.push(element);
+            if (element && !targets.includes(element)) targets.push(element);
         };
 
-        // 1. 视频本身
         add(video);
+        add(video?.parentElement);
+        add(video?.closest("[id*='video' i]"));
+        add(video?.closest("[class*='video' i]"));
+        add(video?.closest("[id*='player' i]"));
+        add(video?.closest("[class*='player' i]"));
 
-        // 2. 视频的所有父级容器，不依赖 class / id
-        let parent = video?.parentElement;
-        while (parent) {
-            add(parent);
-
-            // 到 html 就够了，避免继续往上无意义遍历
-            if (parent === document.documentElement) break;
-            parent = parent.parentElement;
-        }
-
-        // 3. 全屏元素兜底
         const fullscreenElement = getFullscreenElement();
-        if (fullscreenElement && (fullscreenElement === video || fullscreenElement.contains(video))) {
-            add(fullscreenElement);
-        }
-
-        // 4. 当前坐标下的元素链
-        // 这个比 querySelectorAll("*") 安全很多，只拿当前鼠标位置真正命中的元素
-        if (
-            Number.isFinite(x) &&
-            Number.isFinite(y) &&
-            x >= 0 &&
-            y >= 0 &&
-            x <= win.innerWidth &&
-            y <= win.innerHeight
-        ) {
-            try {
-                document.elementsFromPoint(x, y).forEach(add);
-            } catch (err) {}
-        }
-
-        // 5. 文档级兜底
+        add(fullscreenElement);
         add(document.body);
         add(document.documentElement);
         add(document);
-
         return targets;
     }
 
-
+    
     function sendControlMouseEvents(video, type, x, y) {
-        const targets = getControlEventTargets(video, x, y);
-
-        if (type === "show") {
-            targets.forEach((target) => {
+        getControlEventTargets(video).forEach((target) => {
+            if (type === "show") {
                 sendMouseEvent(target, "mouseenter", x, y);
                 sendMouseEvent(target, "mouseover", x, y);
                 sendMouseEvent(target, "mousemove", x, y);
-            });
-        } else {
-            // hide 时反向发送，更接近“从内部元素离开到外部”的顺序
-            targets.slice().reverse().forEach((target) => {
+            } else {
                 sendMouseEvent(target, "mouseleave", x, y);
                 sendMouseEvent(target, "mouseout", x, y);
-            });
-        }
+            }
+        });
+
+        sendMouseEvent(document, "mousemove", x, y);
     }
 
 
@@ -1456,8 +1425,7 @@
         const moveMouse = () => {
             const rect = video.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
-            // const y = rect.top + rect.height * 0.1;
-            const y = rect.bottom - rect.height * 0.01;
+            const y = rect.top + rect.height * 0.1;
             sendControlMouseEvents(video, "show", x, y);
         };
 
