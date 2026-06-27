@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.34
+// @version      0.0.35
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -136,6 +136,41 @@
     const controllers = new Map();
     const audioStores = new WeakMap();
     let rafId = null;
+
+    const NATIVE_CLICK_BLOCK_DURATION = 500;
+    const VISIBLE_ELEMENT_MIN_SIZE = 1;
+    const VISIBLE_OPACITY_THRESHOLD = 0.05;
+
+    const PLAYER_WIDGET_SELECTOR = [
+        "button",
+        "a",
+        "input",
+        "select",
+        "textarea",
+        "[role='button']",
+        "[role='slider']",
+        "[aria-valuemin][aria-valuemax]",
+
+        "[class*='control' i]",
+        "[class*='controls' i]",
+        "[class*='ctrl' i]",
+        "[class*='button' i]",
+        "[class*='btn' i]",
+
+        "[class*='progress' i]",
+        "[class*='timeline' i]",
+        "[class*='seek' i]",
+
+        "[class*='volume' i]",
+        "[class*='speed' i]",
+        "[class*='playback' i]",
+        "[class*='quality' i]",
+        "[class*='setting' i]",
+        "[class*='fullscreen' i]",
+        "[class*='menu' i]",
+        "[class*='popover' i]",
+        "[class*='panel' i]"
+    ].join(",");
 
     // #endregion
 
@@ -747,85 +782,6 @@
     }
 
 
-    // function getControlEventTargets(video) {
-    //     const targets = [];
-    //     const add = (element) => {
-    //         if (element && !targets.includes(element)) targets.push(element);
-    //     };
-
-    //     add(video);
-    //     add(video.parentElement);
-    //     add(video.closest(".html5-video-player"));
-    //     add(video.closest("#movie_player"));
-    //     add(video.closest(".bpx-player-container"));
-    //     add(video.closest(".bpx-player-video-area"));
-    //     add(video.closest("[class*='player']"));
-
-    //     const fullscreenElement = getFullscreenElement();
-    //     if (fullscreenElement && (fullscreenElement === video || fullscreenElement.contains(video))) {
-    //         add(fullscreenElement);
-    //     }
-
-    //     add(document.body);
-    //     add(document.documentElement);
-    //     add(document);
-    //     return targets;
-    // }
-
-
-    // function sendControlMouseEvents(video, type, x, y) {
-    //     getControlEventTargets(video).forEach((target) => {
-    //         if (type === "show") {
-    //             sendMouseEvent(target, "mouseenter", x, y);
-    //             sendMouseEvent(target, "mouseover", x, y);
-    //             sendMouseEvent(target, "mousemove", x, y);
-    //         } else {
-    //             sendMouseEvent(target, "mouseleave", x, y);
-    //             sendMouseEvent(target, "mouseout", x, y);
-    //         }
-    //     });
-    //     if (type === "show") sendMouseEvent(document, "mousemove", x, y);
-    // }
-
-
-    function getControlEventTargets(video) {
-        const targets = [];
-        const add = (element) => {
-            if (element && !targets.includes(element)) targets.push(element);
-        };
-
-        add(video);
-        add(video?.parentElement);
-        add(video?.closest("[id*='video' i]"));
-        add(video?.closest("[class*='video' i]"));
-        add(video?.closest("[id*='player' i]"));
-        add(video?.closest("[class*='player' i]"));
-
-        const fullscreenElement = getFullscreenElement();
-        add(fullscreenElement);
-        add(document.body);
-        add(document.documentElement);
-        add(document);
-        return targets;
-    }
-
-    
-    function sendControlMouseEvents(video, type, x, y) {
-        getControlEventTargets(video).forEach((target) => {
-            if (type === "show") {
-                sendMouseEvent(target, "mouseenter", x, y);
-                sendMouseEvent(target, "mouseover", x, y);
-                sendMouseEvent(target, "mousemove", x, y);
-            } else {
-                sendMouseEvent(target, "mouseleave", x, y);
-                sendMouseEvent(target, "mouseout", x, y);
-            }
-        });
-
-        sendMouseEvent(document, "mousemove", x, y);
-    }
-
-
     // 以遮罩层（覆盖在视频上的容器）为基准判断左右半屏
     function getGestureZone(refEl, clientX) {
         const rect = refEl.getBoundingClientRect();
@@ -1391,7 +1347,7 @@
         if (!c.video) return;
         c.video.currentTime = clamp(c.video.currentTime + seconds, 0, c.video.duration);
 
-        showToast(c, "", `${seconds > 0 ? "+" : "−"} ${Math.abs(seconds)}s`);
+        showToast(c, "", `${seconds > 0 ? "+" : "−"} ${Math.abs(seconds)}s`);
         c.toastTimer = resetTimeout(c.toastTimer, () => hideToast(c), TOAST_DELAY);
     }
 
@@ -1400,13 +1356,42 @@
 
 
     // ============================================================
-    // #region 单指单击：控制栏
+    // #region 单指单击：进度条
     // ============================================================
 
+    function getMouseEventTargets(video) {
+        const targets = [];
+        const add = (element) => { if (element?.dispatchEvent && !targets.includes(element)) targets.push(element); };
+        
+        add(video);
+        add(video?.parentElement);
+        
+        const selector = "[id*='video' i], [class*='video' i], [id*='player' i], [class*='player' i]";
+        let node = video?.parentElement;
+        let count = 0;
+        let matched;
+        
+        while (node && count < 5 && (matched = node.closest(selector))) {
+            add(matched);
+            count++;
+            node = matched.parentElement;
+        }
+
+        const fullscreenElement = getFullscreenElement();
+        if (fullscreenElement && (fullscreenElement === video || fullscreenElement?.contains(video))) add(fullscreenElement);
+        
+        add(document.body);
+        add(document.documentElement);
+        add(document);
+
+        return targets;
+    }
+
+    
     function showCtrl(c) {
-        const video = c.video;
-        if (!video) return;
+        if (!c.video) return;
         c.isCtrlVisible = true;
+        updateButtonsState(c);
 
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
@@ -1414,35 +1399,38 @@
         c.ctrlHideTimer = null;
 
         const moveMouse = () => {
-            const rect = video.getBoundingClientRect();
+            const rect = c.video.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height * 0.1;
-            sendControlMouseEvents(video, "show", x, y);
+            getMouseEventTargets(c.video).forEach((target) => {
+                sendMouseEvent(target, "mouseenter", x, y);
+                sendMouseEvent(target, "mouseover", x, y);
+                sendMouseEvent(target, "mousemove", x, y);
+            });
         };
 
         moveMouse();
         c.ctrlKeepTimer = setInterval(moveMouse, 1000);
-
-        updateButtonsState(c);
     }
 
 
     function hideCtrl(c) {
-        const video = c.video;
-        if (!video) return;
+        if (!c.video) return;
         c.isCtrlVisible = false;
+        updateButtonsState(c);
 
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
         c.ctrlKeepTimer = null;
         c.ctrlHideTimer = null;
 
-        const rect = video.getBoundingClientRect();
+        const rect = c.video.getBoundingClientRect();
         const x = rect.right + 10;
         const y = rect.bottom + 10;
-        sendControlMouseEvents(video, "hide", x, y);
-
-        updateButtonsState(c);
+        getMouseEventTargets(c.video).forEach((target) => {
+            sendMouseEvent(target, "mouseleave", x, y);
+            sendMouseEvent(target, "mouseout", x, y);
+        });
     }
 
 
@@ -1778,6 +1766,192 @@
 
 
     // ============================================================
+    // #region 原生控件放行
+    // ============================================================
+
+    let activeController = null;
+    let activePointerId = null;
+    let hoverController = null;
+    let blockNativeClickUntil = 0;
+
+    function getControllerAtPoint(x, y) {
+        const list = Array.from(controllers.values()).reverse();
+
+        for (const c of list) {
+            if (!c?.root || c.root.style.display === "none") continue;
+
+            const rect = c.root.getBoundingClientRect();
+
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return c;
+                
+        }
+
+        return null;
+    }
+
+
+    function isVteElement(element) {
+        return element instanceof Element && !!element.closest(`#${ROOT_ID}, #${SETTINGS_PANEL_ID}`);
+    }
+
+
+   function isElementVisible(element) {
+        if (!(element instanceof Element)) return false;
+
+        const rect = element.getBoundingClientRect();
+
+        if (rect.width < VISIBLE_ELEMENT_MIN_SIZE || rect.height < VISIBLE_ELEMENT_MIN_SIZE) return false;
+        if (rect.right <= 0 || rect.left >= window.innerWidth) return false;
+        if (rect.bottom <= 0 || rect.top >= window.innerHeight) return false;
+
+        for (let node = element; node && node instanceof Element; node = node.parentElement) {
+            const style = getComputedStyle(node);
+
+            if (style.display === "none") return false;
+            if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+            if (Number(style.opacity) <= VISIBLE_OPACITY_THRESHOLD) return false;
+        }
+
+        if (getComputedStyle(element).pointerEvents === "none") return false;
+
+        return true;
+    }
+
+
+    function overlapsRoot(c, element) {
+        if (!c?.root) return false;
+        if (!(element instanceof Element)) return false;
+        const rootRect = c.root.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        return rect.right > rootRect.left && rect.left < rootRect.right && rect.bottom > rootRect.top && rect.top < rootRect.bottom;
+    }
+
+
+    function isPlayerWidgetTarget(c, e) {
+        const elements = document.elementsFromPoint(e.clientX, e.clientY);
+
+        for (const element of elements) {
+            if (!(element instanceof Element)) continue;
+            if (isVteElement(element)) continue;
+
+            const playerWidget = element.closest(PLAYER_WIDGET_SELECTOR);
+            if (!playerWidget) continue;
+            if (!isElementVisible(playerWidget)) continue;
+            if (!overlapsRoot(c, playerWidget)) continue;
+
+            return true;
+        }
+
+        return false;
+    }
+
+
+    function getEventController(e) {
+        if (isVteElement(e.target)) return null;
+        return getControllerAtPoint(e.clientX, e.clientY);
+    }
+
+
+    function isActiveGestureEvent(e) {
+        return activeController && e.pointerId === activePointerId;
+    }
+
+
+    function clearActiveGesture() {
+        activeController = null;
+        activePointerId = null;
+    }
+
+
+    function onGesturePointerDown(e) {
+        if (!e.isPrimary || e.button === 2) return;
+
+        const c = getEventController(e);
+        if (!c) return;
+
+        // 点到可见的播放器原生组件时，放行给原生播放器
+        if (isPlayerWidgetTarget(c, e)) return;
+
+        activeController = c;
+        activePointerId = e.pointerId;
+        blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+
+        handleDown(c, e);
+    }
+
+
+    function onGesturePointerMove(e) {
+        if (!isActiveGestureEvent(e)) return;
+        handleMove(activeController, e);
+    }
+
+
+    function onGesturePointerEnd(e) {
+        if (!isActiveGestureEvent(e)) return;
+        handleUp(activeController, e);
+        clearActiveGesture();
+    }
+
+
+    function onGestureMouseMove(e) {
+        const c = getEventController(e);
+
+        if (hoverController && hoverController !== c && !hoverController.isDown && !hoverController.isLocked) {
+            hideCtrl(hoverController);
+        }
+
+        hoverController = c;
+
+        if (!c) return;
+        if (c.isDown || c.isLocked || e.isTrusted === false) return;
+
+        // 移到播放器原生组件上时，不抢事件
+        if (isPlayerWidgetTarget(c, e)) return;
+
+        showCtrlTemp(c);
+    }
+
+
+    function shouldBlockNativeClick(e) {
+        if (Date.now() > blockNativeClickUntil) return false;
+
+        const c = getEventController(e);
+        if (!c) return false;
+        if (isPlayerWidgetTarget(c, e)) return false;
+
+        return true;
+    }
+
+
+    function onNativeMouseEvent(e) {
+        if (!shouldBlockNativeClick(e)) return;
+
+        blockNativeEvent(e);
+    }
+
+
+    function bindGestureEvents() {
+        if (bindGestureEvents.bound) return;
+        bindGestureEvents.bound = true;
+
+        document.addEventListener("pointerdown", onGesturePointerDown, true);
+        document.addEventListener("pointermove", onGesturePointerMove, true);
+        document.addEventListener("pointerup", onGesturePointerEnd, true);
+        document.addEventListener("pointercancel", onGesturePointerEnd, true);
+
+        document.addEventListener("mousemove", onGestureMouseMove, true);
+
+        document.addEventListener("click", onNativeMouseEvent, true);
+        document.addEventListener("dblclick", onNativeMouseEvent, true);
+        document.addEventListener("auxclick", onNativeMouseEvent, true);
+        document.addEventListener("contextmenu", onNativeMouseEvent, true);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
     // #region 控制器 controller
     // ============================================================
 
@@ -1787,8 +1961,8 @@
         root.style.cssText = `
             position: fixed;
             z-index: ${ROOT_Z_INDEX};
-            left: 0;
             top: 0;
+            left: 0;
             width: 0;
             height: 0;
             pointer-events: none;
@@ -1803,11 +1977,10 @@
             top: 0;
             left: 0;
             width: 100%;
-            height: 90%;
+            height: 100%;
             background: transparent;
             user-select: none;
-            pointer-events: auto;
-            touch-action: none !important;
+            pointer-events: none;
         `;
         root.appendChild(shield);
 
@@ -1847,22 +2020,22 @@
             gainNode: null,
         };
 
-        const ignoreHover = (e) => { return c.isDown || c.isLocked || (e && e.isTrusted === false); };
-        const insideRoot = (e) => { return !!(e.relatedTarget && e.relatedTarget.nodeType && c.root.contains(e.relatedTarget)); };
+        // const ignoreHover = (e) => { return c.isDown || c.isLocked || (e && e.isTrusted === false); };
+        // const insideRoot = (e) => { return !!(e.relatedTarget && e.relatedTarget.nodeType && c.root.contains(e.relatedTarget)); };
 
-        shield.addEventListener("mouseenter", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
-        shield.addEventListener("mousemove", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
-        shield.addEventListener("mouseleave", (e) => { if (ignoreHover(e)) return; if (insideRoot(e)) return; hideCtrl(c); }, true);
+        // shield.addEventListener("mouseenter", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
+        // shield.addEventListener("mousemove", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
+        // shield.addEventListener("mouseleave", (e) => { if (ignoreHover(e)) return; if (insideRoot(e)) return; hideCtrl(c); }, true);
 
-        shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch {} }, true);
-        shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
-        shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
-        shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
+        // shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch {} }, true);
+        // shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
+        // shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
+        // shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
 
-        shield.addEventListener("click", (e) => blockNativeEvent(e), true);
-        shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
-        shield.addEventListener("auxclick", (e) => blockNativeEvent(e), true);
-        shield.addEventListener("contextmenu", (e) => blockNativeEvent(e), true);
+        // shield.addEventListener("click", (e) => blockNativeEvent(e), true);
+        // shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
+        // shield.addEventListener("auxclick", (e) => blockNativeEvent(e), true);
+        // shield.addEventListener("contextmenu", (e) => blockNativeEvent(e), true);
 
         document.body.appendChild(root);
         setupButtons(c);
@@ -2052,6 +2225,7 @@
     window.addEventListener("popstate", scheduleScan);
     window.addEventListener("load", scan);
 
+    bindGestureEvents();
     scan();
 
     // #endregion
