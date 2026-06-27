@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.38
+// @version      0.0.39
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -60,7 +60,6 @@
     const SETTINGS_KEY = "vte-settings-v2";
     const TOAST_ID = "vte-toast";
     const SHIELD_ID = "vte-shield";
-    const ROOT_ID = "vte-root";
     const SETTINGS_PANEL_ID = "vte-settings-panel";
     const STYLE_ID = "vte-style";
 
@@ -83,7 +82,7 @@
     const MIN_VIDEO_WIDTH = 200;
     const MIN_VIDEO_HEIGHT = 120;
 
-    const ROOT_Z_INDEX = "45";
+    const SHIELD_Z_INDEX = "45";
     const PRIMARY_SCAN_INTERVAL = 1200;
 
     const VERTICAL_ACTIONS = {
@@ -134,39 +133,7 @@
     let rafId = null;
 
     const NATIVE_CLICK_BLOCK_DURATION = 500;
-    const VISIBLE_ELEMENT_MIN_SIZE = 1;
-    const VISIBLE_OPACITY_THRESHOLD = 0.05;
 
-    const PLAYER_WIDGET_SELECTOR = [
-        "button",
-        "a",
-        "input",
-        "select",
-        "textarea",
-        "[role='button']",
-        "[role='slider']",
-        "[aria-valuemin][aria-valuemax]",
-
-        "[class*='control' i]",
-        "[class*='controls' i]",
-        "[class*='ctrl' i]",
-        "[class*='button' i]",
-        "[class*='btn' i]",
-
-        "[class*='progress' i]",
-        "[class*='timeline' i]",
-        "[class*='seek' i]",
-
-        "[class*='volume' i]",
-        "[class*='speed' i]",
-        "[class*='playback' i]",
-        "[class*='quality' i]",
-        "[class*='setting' i]",
-        "[class*='fullscreen' i]",
-        "[class*='menu' i]",
-        "[class*='popover' i]",
-        "[class*='panel' i]"
-    ].join(",");
 
     // #endregion
 
@@ -799,6 +766,11 @@
     }
 
 
+    function isRectsOverlap(a, b) {
+        return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom;
+    }
+
+
     function restoreGestureTouchAction(c) {
         const elements = [
             c.video,
@@ -1074,7 +1046,7 @@
     // ============================================================
 
     function createToast(c) {
-        let toast = c.root.querySelector("#" + TOAST_ID);
+        let toast = c.shield.querySelector("#" + TOAST_ID);
         if (!toast) {
             toast = document.createElement("div");
             toast.id = TOAST_ID;
@@ -1105,7 +1077,7 @@
 
                 pointer-events: none;
             `;
-            c.root.appendChild(toast);
+            c.shield.appendChild(toast);
         }
         return toast;
     }
@@ -1134,7 +1106,7 @@
 
     function hideToast(c) {
         clearTimeout(c.toastTimer);
-        const toast = c.root.querySelector("#" + TOAST_ID);
+        const toast = c.shield.querySelector("#" + TOAST_ID);
         if (toast) toast.style.display = "none";
     }
 
@@ -1147,7 +1119,7 @@
     // ============================================================
 
     function createButton(c, id, action) {
-        let button = c.root.querySelector("#" + id);
+        let button = c.shield.querySelector("#" + id);
         if (!button) {
             button = document.createElement("button");
             button.id = id;
@@ -1196,7 +1168,7 @@
                 }
             }, true);
 
-            c.root.appendChild(button);
+            c.shield.appendChild(button);
         }
 
         button.dataset.action = action;
@@ -1230,9 +1202,9 @@
     // 仅更新几何尺寸（每帧调用，开销低）
     function updateButtonsLayout(c) {
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
-        const buttonSide = c.root.clientWidth * 0.04;
+        const buttonSide = c.shield.clientWidth * 0.04;
 
-        c.root.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
+        c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             button.style.width = `${buttonSize}px`;
             button.style.height = `${buttonSize}px`;
             button.style.left = LEFT_BUTTON_IDS.includes(button.id) ? `${buttonSide}px` : "";
@@ -1246,7 +1218,7 @@
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
         const showMainButton = c.isLocked || c.isPBVisible;
 
-        c.root.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
+        c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             const isExpanded = c.expandedButtonIds.has(button.id);
             if (button.dataset.action == "lock") {
                 setHTML(button, c.isLocked ? lockIcon : unlockIcon);
@@ -1269,7 +1241,7 @@
 
 
     function setupButtons(c) {
-        if (!c.root) return;
+        if (!c.shield) return;
 
         let leftAction = userSettings.leftButtonAction ?? DEFAULT_SETTINGS.leftButtonAction;
         let rightAction = userSettings.rightButtonAction ?? DEFAULT_SETTINGS.rightButtonAction;
@@ -1519,7 +1491,7 @@
     function onSeek(c, clientX) {
         if (!c.video) return;
 
-        c.startVal = c.startVal + (clientX - c.prevX) / (c.root.clientWidth * (userSettings.horizontalSens / 100)) * c.video.duration;
+        c.startVal = c.startVal + (clientX - c.prevX) / (c.shield.clientWidth * (userSettings.horizontalSens / 100)) * c.video.duration;
         c.startVal = clamp(c.startVal, 0, c.video.duration);
         c.prevX = clientX;
         c.video.currentTime = c.startVal;
@@ -1560,7 +1532,7 @@
 
     function onBrightness(c, clientY) {
         const video = c.video;
-        c.startVal = c.startVal + (c.prevY - clientY) / (c.root.clientHeight * (userSettings.verticalSens / 100));
+        c.startVal = c.startVal + (c.prevY - clientY) / (c.shield.clientHeight * (userSettings.verticalSens / 100));
         c.startVal = clamp(c.startVal, 0, userSettings.maxBrightness / 100);
         c.prevY = clientY;
 
@@ -1624,7 +1596,7 @@
 
     function onVolume(c, clientY) {
         const video = c.video;
-        c.startVal = c.startVal + (c.prevY - clientY) / (c.root.clientHeight * (userSettings.verticalSens / 100));
+        c.startVal = c.startVal + (c.prevY - clientY) / (c.shield.clientHeight * (userSettings.verticalSens / 100));
         c.startVal = clamp(c.startVal, 0, userSettings.maxVolume / 100);
         c.prevY = clientY;
 
@@ -1707,7 +1679,7 @@
                     c.gestureType = "none";
                 }
             } else {
-                const zone = getGestureZone(c.root, c.startX);
+                const zone = getGestureZone(c.shield, c.startX);
                 const action = zone === "left" ? userSettings.verticalSwipeLeft : userSettings.verticalSwipeRight;
 
                 if (action == "brightness") {
@@ -1800,9 +1772,9 @@
         const list = Array.from(controllers.values()).reverse();
 
         for (const c of list) {
-            if (!c?.root || c.root.style.display === "none") continue;
+            if (!c?.shield || c.shield.style.display === "none") continue;
 
-            const rect = c.root.getBoundingClientRect();
+            const rect = c.shield.getBoundingClientRect();
 
             if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return c;
                 
@@ -1813,7 +1785,8 @@
 
 
     function isVteElement(element) {
-        return element instanceof Element && !!element.closest(`#${ROOT_ID}, #${SETTINGS_PANEL_ID}`);
+        if (!(element instanceof Element)) return false;
+        return !!element.closest(`#${SHIELD_ID}, #${SETTINGS_PANEL_ID}`);
     }
 
 
@@ -1822,48 +1795,58 @@
 
         const rect = element.getBoundingClientRect();
 
-        if (rect.width < VISIBLE_ELEMENT_MIN_SIZE || rect.height < VISIBLE_ELEMENT_MIN_SIZE) return false;
+        if (rect.width < 1 || rect.height < 1) return false;
         if (rect.right <= 0 || rect.left >= window.innerWidth) return false;
         if (rect.bottom <= 0 || rect.top >= window.innerHeight) return false;
+        if (getComputedStyle(element).pointerEvents === "none") return false;
 
         for (let node = element; node && node instanceof Element; node = node.parentElement) {
             const style = getComputedStyle(node);
-
             if (style.display === "none") return false;
             if (style.visibility === "hidden" || style.visibility === "collapse") return false;
-            if (Number(style.opacity) <= VISIBLE_OPACITY_THRESHOLD) return false;
+            if (Number(style.opacity) <= 0.05) return false;
         }
-
-        if (getComputedStyle(element).pointerEvents === "none") return false;
 
         return true;
     }
 
 
-    function overlapsRoot(c, element) {
-        if (!c?.root) return false;
+    function overlapsVideoArea(c, element) {
+        if (!c?.video) return false;
         if (!(element instanceof Element)) return false;
-        const rootRect = c.root.getBoundingClientRect();
-        const rect = element.getBoundingClientRect();
-        return rect.right > rootRect.left && rect.left < rootRect.right && rect.bottom > rootRect.top && rect.top < rootRect.bottom;
+        return isRectsOverlap(element.getBoundingClientRect(), c.video.getBoundingClientRect());
     }
 
 
-    function isPlayerWidgetTarget(c, e) {
-        const elements = document.elementsFromPoint(e.clientX, e.clientY);
+    function getVideoContainer(video) {
+        let node = video?.parentElement;
 
+        while (node && node !== document.body && node !== document.documentElement) {
+            for (const child of node.children) {
+                if (child === video || child.contains(video)) continue;
+                if (isElementVisible(child)) return node;
+            }
+            node = node.parentElement;
+        }
+
+        return video?.parentElement || null;
+    }
+
+
+    function isWidgetTarget(c, e) {
+        const videoContainer = getVideoContainer(c.video);
+        if (!videoContainer) return false;
+
+        const elements = document.elementsFromPoint(e.clientX, e.clientY);
         for (const element of elements) {
             if (!(element instanceof Element)) continue;
             if (isVteElement(element)) continue;
-
-            const playerWidget = element.closest(PLAYER_WIDGET_SELECTOR);
-            if (!playerWidget) continue;
-            if (!isElementVisible(playerWidget)) continue;
-            if (!overlapsRoot(c, playerWidget)) continue;
-
+            if (element === c.video || element.contains(c.video)) continue;
+            if (!videoContainer.contains(element)) continue;
+            if (!isElementVisible(element)) continue;
+            if (!overlapsVideoArea(c, element)) continue;
             return true;
         }
-
         return false;
     }
 
@@ -1878,11 +1861,11 @@
     function getVteControllerFromTarget(target) {
         if (!(target instanceof Element)) return null;
 
-        const root = target.closest(`#${ROOT_ID}`);
-        if (!root) return null;
+        const shield = target.closest(`#${SHIELD_ID}`);
+        if (!shield) return null;
 
         for (const c of controllers.values()) {
-            if (c.root === root) return c;
+            if (c.shield === shield) return c;
         }
 
         return null;
@@ -1901,7 +1884,7 @@
         if (!c) return;
 
         // 点到可见的播放器原生组件时，放行给原生播放器
-        if (isPlayerWidgetTarget(c, e)) return;
+        if (isWidgetTarget(c, e)) return;
 
         activeController = c;
         activePointerId = e.pointerId;
@@ -1956,7 +1939,7 @@
         if (c.isDown || c.isLocked || e.isTrusted === false) return;
 
         // 移到播放器原生组件上时，不抢事件
-        if (isPlayerWidgetTarget(c, e)) return;
+        if (isWidgetTarget(c, e)) return;
 
         showPBTemp(c);
     }
@@ -1974,7 +1957,7 @@
 
         const c = getEventController(e);
         if (!c) return;
-        if (isPlayerWidgetTarget(c, e)) return;
+        if (isWidgetTarget(c, e)) return;
 
         blockNativeEvent(e);
     }
@@ -2005,11 +1988,11 @@
     // ============================================================
 
     function createController(video) {
-        const root = document.createElement("div");
-        root.id = ROOT_ID;
-        root.style.cssText = `
+        const shield = document.createElement("div");
+        shield.id = SHIELD_ID;
+        shield.style.cssText = `
             position: fixed;
-            z-index: ${ROOT_Z_INDEX};
+            z-index: ${SHIELD_Z_INDEX};
             top: 0;
             left: 0;
             width: 0;
@@ -2018,24 +2001,8 @@
             overflow: visible;
         `;
 
-        const shield = document.createElement("div");
-        shield.id = SHIELD_ID;
-        shield.style.cssText = `
-            position: absolute;
-            z-index: 20;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            user-select: none;
-            pointer-events: none;
-        `;
-        root.appendChild(shield);
-
         const c = {
             video,
-            root,
             shield,
 
             isLocked: false,
@@ -2069,25 +2036,8 @@
             gainNode: null,
         };
 
-        // const ignoreHover = (e) => { return c.isDown || c.isLocked || (e && e.isTrusted === false); };
-        // const insideRoot = (e) => { return !!(e.relatedTarget && e.relatedTarget.nodeType && c.root.contains(e.relatedTarget)); };
-
-        // shield.addEventListener("mouseenter", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
-        // shield.addEventListener("mousemove", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
-        // shield.addEventListener("mouseleave", (e) => { if (ignoreHover(e)) return; if (insideRoot(e)) return; hideCtrl(c); }, true);
-
-        // shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch {} }, true);
-        // shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
-        // shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
-        // shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
-
-        // shield.addEventListener("click", (e) => blockNativeEvent(e), true);
-        // shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
-        // shield.addEventListener("auxclick", (e) => blockNativeEvent(e), true);
-        // shield.addEventListener("contextmenu", (e) => blockNativeEvent(e), true);
-
         setGestureTouchAction(c);
-        document.body.appendChild(root);
+        document.body.appendChild(shield);
         setupButtons(c);
         return c;
     }
@@ -2100,7 +2050,7 @@
         clearInterval(c.pbKeepTimer);
         clearTimeout(c.pbHideTimer);
         restoreGestureTouchAction(c);
-        c.root?.remove();
+        c.shield?.remove();
     }
 
 
@@ -2179,6 +2129,11 @@
     // ============================================================
 
     function syncLayout() {
+        if (controllers.size === 0) {
+            rafId = null;
+            return;
+        }
+
         const fe = getFullscreenElement();
 
         controllers.forEach((c) => {
@@ -2190,25 +2145,25 @@
             if (inFullscreen) {
                 // 全屏：把遮罩挂进全屏元素内部（否则不会被渲染），铺满
                 const host = (fe === video && video.parentElement) ? video.parentElement : fe;
-                if (c.root.parentElement !== host) host.appendChild(c.root);
-                c.root.style.position = "absolute";
-                c.root.style.left = "0";
-                c.root.style.top = "0";
-                c.root.style.width = "100%";
-                c.root.style.height = "100%";
-                c.root.style.display = "";
+                if (c.shield.parentElement !== host) host.appendChild(c.shield);
+                c.shield.style.position = "absolute";
+                c.shield.style.left = "0";
+                c.shield.style.top = "0";
+                c.shield.style.width = "100%";
+                c.shield.style.height = "100%";
+                c.shield.style.display = "";
             } else {
                 // 普通：固定定位，实时贴合视频在视口中的位置
-                if (c.root.parentElement !== document.body) document.body.appendChild(c.root);
+                if (c.shield.parentElement !== document.body) document.body.appendChild(c.shield);
                 const rect = video.getBoundingClientRect();
                 const tooSmall = rect.width < MIN_VIDEO_WIDTH || rect.height < MIN_VIDEO_HEIGHT;
                 const offscreen = rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth;
-                c.root.style.display = (tooSmall || offscreen) ? "none" : "";
-                c.root.style.position = "fixed";
-                c.root.style.left = `${rect.left}px`;
-                c.root.style.top = `${rect.top}px`;
-                c.root.style.width = `${rect.width}px`;
-                c.root.style.height = `${rect.height}px`;
+                c.shield.style.display = (tooSmall || offscreen) ? "none" : "";
+                c.shield.style.position = "fixed";
+                c.shield.style.left = `${rect.left}px`;
+                c.shield.style.top = `${rect.top}px`;
+                c.shield.style.width = `${rect.width}px`;
+                c.shield.style.height = `${rect.height}px`;
             }
 
             updateButtonsLayout(c);
