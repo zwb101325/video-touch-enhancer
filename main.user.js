@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.37
+// @version      0.0.38
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -126,10 +126,6 @@
         leftButtonAction: "lock",
         rightButtonAction: "menu",
         btnSeekStep: 10,
-
-        // 通用兼容
-        mouseDebugMode: true,
-        universalCompatMode: true,
     };
 
     let userSettings = loadSettings();
@@ -986,12 +982,6 @@
                             ${buildSelectRow("左侧", "leftButtonAction", BUTTON_ACTIONS)}
                             ${buildSelectRow("右侧", "rightButtonAction", BUTTON_ACTIONS)}
                             ${buildNumberRow("按钮跳转时长", "btnSeekStep", 1, 30, 1, "s")}
-                        </details>
-
-                        <details class="vte-section">
-                            <summary>${buildSummaryRow("兼容模式", buttonAreaIcon, "vte-summary-icon-blue")}</summary>
-                            ${buildSwitchRow("鼠标手势控制", "mouseDebugMode")}
-                            ${buildSwitchRow("主流平台通用兼容", "universalCompatMode")}
                         </details>
 
                         <div class="vte-footer">
@@ -2139,7 +2129,6 @@
 
 
     function isVideoEligible(video) {
-        if (!userSettings.universalCompatMode && !/bilibili\.com$/i.test(location.hostname)) return false;
         if (!video || !video.isConnected) return false;
         if (isAdLikeVideo(video)) return false;
 
