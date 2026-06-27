@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.30
+// @version      0.0.32
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -31,7 +31,7 @@
             if (tt && typeof tt.createPolicy === "function") {
                 return tt.createPolicy("touch-enhancer-html", { createHTML: (s) => s });
             }
-        } catch (err) {
+        } catch(err) {
             // CSP 的 trusted-types 指令限制了 policy 名单时会走到这里
         }
         return null;
@@ -43,9 +43,9 @@
         const value = (html == null) ? "" : String(html);
         try {
             element.innerHTML = ttPolicy ? ttPolicy.createHTML(value) : value;
-        } catch (err) {
+        } catch(err) {
             // 极端情况下（强制 Trusted Types 且 policy 被拒）退化为纯文本，至少不让脚本崩溃
-            try { element.textContent = ""; } catch (e) {}
+            try { element.textContent = ""; } catch(e) {}
         }
     }
 
@@ -536,7 +536,7 @@
             pointer-events: none;
         }
 
-        .html5-video-player.vte-youtube-controls-visible .ytp-chrome-bottom,
+        /* .html5-video-player.vte-youtube-controls-visible .ytp-chrome-bottom,
         .html5-video-player.vte-youtube-controls-visible .ytp-chrome-top,
         .html5-video-player.vte-youtube-controls-visible .ytp-gradient-bottom,
         .html5-video-player.vte-youtube-controls-visible .ytp-gradient-top {
@@ -551,7 +551,7 @@
             opacity: 0 !important;
             visibility: hidden !important;
             pointer-events: none !important;
-        }
+        } */
         /* #endregion */
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -736,11 +736,12 @@
             element.dispatchEvent(new win.MouseEvent(type, {
                 bubbles: true,
                 cancelable: true,
+                composed: true,
+                view: win,
                 clientX: x,
                 clientY: y,
-                view: win
             }));
-        } catch (err) { 
+        } catch(err) { 
             // 某些站点禁用合成事件，忽略即可
         }
     }
@@ -1460,25 +1461,6 @@
         c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), userSettings.ctrlDuration * 1000);
     }
 
-
-    function isPointInVideoRect(c, x, y) {
-        const video = c.video;
-        if (!video) return false;
-        const rect = video.getBoundingClientRect();
-        return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-    }
-
-
-    function updateCtrlByMousePosition(c, e) {
-        if (c.isDown || c.isLocked) return;
-        if (e && e.isTrusted === false) return;
-        if (isPointInVideoRect(c, e.clientX, e.clientY)) {
-            showCtrlTemp(c);
-        } else if (c.isCtrlVisible) {
-            hideCtrl(c);
-        }
-    }
-
     // #endregion
 
 
@@ -1626,7 +1608,7 @@
                     sourceNode: c.sourceNode,
                     gainNode: c.gainNode
                 });
-            } catch (err) {
+            } catch(err) {
                 c.gainNode = null;
             }
         }
@@ -1865,7 +1847,6 @@
             toastTimer: null,
             ctrlKeepTimer: null,
             ctrlHideTimer: null,
-            onDocumentMouseMove: null,
 
             // 全屏状态记忆
             wasFullscreen: false,
@@ -1876,14 +1857,14 @@
             gainNode: null,
         };
 
-        controller.onDocumentMouseMove = (e) => updateCtrlByMousePosition(controller, e);
-        document.addEventListener("mousemove", controller.onDocumentMouseMove, true);
+        shield.addEventListener("mouseenter", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(controller); }, true);
+        shield.addEventListener("mousemove", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(controller); }, true);
+        shield.addEventListener("mouseleave", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; hideCtrl(controller); }, true);
 
-        // 遮罩层手势监听
-        shield.addEventListener("pointerdown", (e) => { handleDown(controller, e); shield.setPointerCapture(e.pointerId); }, true);
-        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); if (!controller.isLocked) { controller.isDown ? showCtrl(controller) : showCtrlTemp(controller); }}, true);
-        shield.addEventListener("pointerup", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
-        shield.addEventListener("pointercancel", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch (err) {} }, true);
+        shield.addEventListener("pointerdown", (e) => { handleDown(controller, e); try { shield.setPointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); }, true);
+        shield.addEventListener("pointerup", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointercancel", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
 
         shield.addEventListener("click", (e) => blockNativeEvent(e), true);
         shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
@@ -1902,7 +1883,6 @@
         clearTimeout(c.toastTimer);
         clearInterval(c.ctrlKeepTimer);
         clearTimeout(c.ctrlHideTimer);
-        if (c.onDocumentMouseMove) document.removeEventListener("mousemove", c.onDocumentMouseMove, true);
         c.root?.remove();
     }
 
@@ -2053,7 +2033,7 @@
         if (primaryVideo && !controllers.has(primaryVideo)) {
             try {
                 controllers.set(primaryVideo, createController(primaryVideo));
-            } catch (err) {}
+            } catch(err) {}
         }
 
         if (controllers.size > 0) startSyncLoop();
