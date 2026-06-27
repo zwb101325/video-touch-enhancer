@@ -8,10 +8,20 @@ export default defineConfig([
         plugins: { js },
         extends: ["js/recommended"],
         languageOptions: {
-            globals: globals.browser,
+            globals: {
+                ...globals.browser,
+
+                GM_getValue: "readonly",
+                GM_setValue: "readonly",
+                GM_registerMenuCommand: "readonly",
+                unsafeWindow: "readonly",
+                trustedTypes: "readonly",
+            },
         },
         rules: {
             "no-empty": "off",
+            "semi": ["error", "always"],
+            "no-extra-semi": "error",
         },
     },
     {

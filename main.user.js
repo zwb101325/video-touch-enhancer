@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.33
+// @version      0.0.34
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -43,9 +43,9 @@
         const value = (html == null) ? "" : String(html);
         try {
             element.innerHTML = ttPolicy ? ttPolicy.createHTML(value) : value;
-        } catch(err) {
+        } catch {
             // 极端情况下（强制 Trusted Types 且 policy 被拒）退化为纯文本，至少不让脚本崩溃
-            try { element.textContent = ""; } catch(e) {}
+            try { element.textContent = ""; } catch {}
         }
     }
 
@@ -741,7 +741,7 @@
                 clientX: x,
                 clientY: y,
             }));
-        } catch(err) { 
+        } catch { 
             // 某些站点禁用合成事件，忽略即可
         }
     }
@@ -1244,24 +1244,18 @@
 
 
     function setButtonVisible(button, visible, offsetY = 0) {
-        const offset = Number(offsetY) || 0;
-        const visibleKey = visible ? "1" : "0";
-        const offsetKey = String(offset);
-
-        if (button.dataset.visibleState === visibleKey && button.dataset.offsetY === offsetKey) return;
-        button.dataset.visibleState = visibleKey;
-        button.dataset.offsetY = offsetKey;
+        if (button.dataset.visibleState === String(visible) && button.dataset.offsetY === String(offsetY)) return;
+        button.dataset.visibleState = String(visible);
+        button.dataset.offsetY = String(offsetY);
 
         clearTimeout(button.hideTimer);
 
         if (visible) {
             button.style.display = "flex";
             requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    button.style.opacity = "1";
-                    button.style.pointerEvents = "auto";
-                    button.style.transform = `translateY(calc(-50% + ${offset}px))`;
-                });
+                button.style.opacity = "1";
+                button.style.pointerEvents = "auto";
+                button.style.transform = `translateY(calc(-50% + ${offsetY}px))`;
             });
         } else {
             button.style.opacity = "0";
@@ -1273,7 +1267,7 @@
 
 
     // 仅更新几何尺寸（每帧调用，开销低）
-    function layoutButtons(c) {
+    function updateButtonsLayout(c) {
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
         const buttonSide = c.root.clientWidth * 0.04;
 
@@ -1287,7 +1281,7 @@
 
 
     // 更新图标与显隐状态（状态变化时调用）
-    function updateButtons(c) {
+    function updateButtonsState(c) {
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
         const showMainButton = c.isLocked || c.isCtrlVisible;
 
@@ -1329,8 +1323,8 @@
         createButton(c, RIGHT_BUTTON_ID, rightAction);
         createButton(c, RIGHT_BACKWARD_BUTTON_ID, "backward");
         createButton(c, RIGHT_FORWARD_BUTTON_ID, "forward");
-        layoutButtons(c);
-        updateButtons(c);
+        updateButtonsLayout(c);
+        updateButtonsState(c);
     }
 
     // #endregion
@@ -1374,7 +1368,7 @@
             showToast(c, unlockIcon, "已解锁");
         }
         c.toastTimer = resetTimeout(c.toastTimer, () => hideToast(c), TOAST_DELAY);
-        updateButtons(c);
+        updateButtonsState(c);
     }
 
     // #endregion
@@ -1389,7 +1383,7 @@
         const buttonIds = button.id === LEFT_BUTTON_ID ? LEFT_BUTTON_IDS : RIGHT_BUTTON_IDS;
         const method = c.expandedButtonIds.has(button.id) ? "delete" : "add";
         buttonIds.forEach((id) => c.expandedButtonIds[method](id));
-        updateButtons(c);
+        updateButtonsState(c);
     }
 
 
@@ -1429,7 +1423,7 @@
         moveMouse();
         c.ctrlKeepTimer = setInterval(moveMouse, 1000);
 
-        updateButtons(c);
+        updateButtonsState(c);
     }
 
 
@@ -1448,7 +1442,7 @@
         const y = rect.bottom + 10;
         sendControlMouseEvents(video, "hide", x, y);
 
-        updateButtons(c);
+        updateButtonsState(c);
     }
 
 
@@ -1604,7 +1598,7 @@
                     sourceNode: c.sourceNode,
                     gainNode: c.gainNode
                 });
-            } catch(err) {
+            } catch {
                 c.gainNode = null;
             }
         }
@@ -1853,13 +1847,12 @@
             gainNode: null,
         };
 
-        shield.addEventListener("mouseenter", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(c); }, true);
-        shield.addEventListener("mousemove", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(c); }, true);
-        shield.addEventListener("mouseleave", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; 
-            const to = e.relatedTarget;
-            if (to && to.nodeType && c.root.contains(to)) return;
-            hideCtrl(c); 
-        }, true);
+        const ignoreHover = (e) => { return c.isDown || c.isLocked || (e && e.isTrusted === false); };
+        const insideRoot = (e) => { return !!(e.relatedTarget && e.relatedTarget.nodeType && c.root.contains(e.relatedTarget)); };
+
+        shield.addEventListener("mouseenter", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
+        shield.addEventListener("mousemove", (e) => { if (ignoreHover(e)) return; showCtrlTemp(c); }, true);
+        shield.addEventListener("mouseleave", (e) => { if (ignoreHover(e)) return; if (insideRoot(e)) return; hideCtrl(c); }, true);
 
         shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch {} }, true);
         shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
@@ -1969,7 +1962,7 @@
             const video = c.video;
             if (!video.isConnected) return;
 
-            const inFullscreen = isPlayerFullscreen(c)
+            const inFullscreen = isPlayerFullscreen(c);
 
             if (inFullscreen) {
                 // 全屏：把遮罩挂进全屏元素内部（否则不会被渲染），铺满
@@ -1995,12 +1988,12 @@
                 c.root.style.height = `${rect.height}px`;
             }
 
-            layoutButtons(c);
+            updateButtonsLayout(c);
 
             // 全屏状态变化时刷新按钮尺寸/偏移
             if (c.wasFullscreen !== inFullscreen) {
                 c.wasFullscreen = inFullscreen;
-                updateButtons(c);
+                updateButtonsState(c);
             }
         });
 
@@ -2052,7 +2045,7 @@
     setInterval(scheduleScan, PRIMARY_SCAN_INTERVAL);
 
     ["fullscreenchange", "webkitfullscreenchange"].forEach((ev) =>
-        document.addEventListener(ev, () => controllers.forEach((c) => updateButtons(c)), true)
+        document.addEventListener(ev, () => controllers.forEach((c) => updateButtonsState(c)), true)
     );
     window.addEventListener("resize", scheduleScan);
     window.addEventListener("pageshow", scheduleScan);
