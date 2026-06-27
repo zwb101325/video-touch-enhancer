@@ -100,7 +100,7 @@
 
     const DEFAULT_SETTINGS = {
         // 单击
-        ctrlDuration: 3,
+        pbDuration: 3,
 
         // 双击
         doubleTapPause: true,
@@ -950,7 +950,7 @@
 
                         <details class="vte-section">
                             <summary>${buildSummaryRow("单击", singleTapIcon, "vte-summary-icon-purple")}</summary>
-                            ${buildNumberRow("进度条显示时长", "ctrlDuration", 1, 10, 1, "s")}
+                            ${buildNumberRow("进度条显示时长", "pbDuration", 1, 10, 1, "s")}
                         </details>
 
                         <details class="vte-section">
@@ -1194,7 +1194,7 @@
             button.addEventListener("pointerup", blockNativeEvent, true);
             button.addEventListener("click", (e) => {
                 blockNativeEvent(e);
-                showCtrlTemp(c);
+                showPBTemp(c);
                 if (button.dataset.action == "lock") {
                     onLockButtonClick(c);
                 } else if (button.dataset.action == "menu") {
@@ -1254,7 +1254,7 @@
     // 更新图标与显隐状态（状态变化时调用）
     function updateButtonsState(c) {
         const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
-        const showMainButton = c.isLocked || c.isCtrlVisible;
+        const showMainButton = c.isLocked || c.isPBVisible;
 
         c.root.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             const isExpanded = c.expandedButtonIds.has(button.id);
@@ -1332,10 +1332,10 @@
         c.isLocked = !c.isLocked;
         if (c.isLocked) {
             finishCurrentGesture(c);
-            hideCtrl(c);
+            hidePB(c);
             showToast(c, lockIcon, "已锁定");
         } else {
-            showCtrlTemp(c);
+            showPBTemp(c);
             showToast(c, unlockIcon, "已解锁");
         }
         c.toastTimer = resetTimeout(c.toastTimer, () => hideToast(c), TOAST_DELAY);
@@ -1420,15 +1420,15 @@
     }
 
     
-    function showCtrl(c) {
+    function showPB(c) {
         if (!c.video) return;
-        c.isCtrlVisible = true;
+        c.isPBVisible = true;
         updateButtonsState(c);
 
-        clearInterval(c.ctrlKeepTimer);
-        clearTimeout(c.ctrlHideTimer);
-        c.ctrlKeepTimer = null;
-        c.ctrlHideTimer = null;
+        clearInterval(c.pbKeepTimer);
+        clearTimeout(c.pbHideTimer);
+        c.pbKeepTimer = null;
+        c.pbHideTimer = null;
 
         const moveMouse = () => {
             const rect = c.video.getBoundingClientRect();
@@ -1442,19 +1442,19 @@
         };
 
         moveMouse();
-        c.ctrlKeepTimer = setInterval(moveMouse, 1000);
+        c.pbKeepTimer = setInterval(moveMouse, 1000);
     }
 
 
-    function hideCtrl(c) {
+    function hidePB(c) {
         if (!c.video) return;
-        c.isCtrlVisible = false;
+        c.isPBVisible = false;
         updateButtonsState(c);
 
-        clearInterval(c.ctrlKeepTimer);
-        clearTimeout(c.ctrlHideTimer);
-        c.ctrlKeepTimer = null;
-        c.ctrlHideTimer = null;
+        clearInterval(c.pbKeepTimer);
+        clearTimeout(c.pbHideTimer);
+        c.pbKeepTimer = null;
+        c.pbHideTimer = null;
 
         const rect = c.video.getBoundingClientRect();
         const x = rect.right + 10;
@@ -1466,9 +1466,9 @@
     }
 
 
-    function showCtrlTemp(c) {
-        showCtrl(c);
-        c.ctrlHideTimer = resetTimeout(c.ctrlHideTimer, () => hideCtrl(c), userSettings.ctrlDuration * 1000);
+    function showPBTemp(c) {
+        showPB(c);
+        c.pbHideTimer = resetTimeout(c.pbHideTimer, () => hidePB(c), userSettings.pbDuration * 1000);
     }
 
     // #endregion
@@ -1522,7 +1522,7 @@
         c.startVal = c.video.currentTime;
         c.wasPlaying = !c.video.paused;
         c.video.pause();
-        showCtrl(c);
+        showPB(c);
     }
 
 
@@ -1541,7 +1541,7 @@
     function onSeekEnd(c) {
         if (!c.video) return;
         if (c.wasPlaying) c.video.play().catch(() => {});
-        hideCtrl(c);
+        hidePB(c);
         hideToast(c);
     }
 
@@ -1767,7 +1767,7 @@
             if (!c.clickTimer) {
                 c.clickTimer = setTimeout(() => {
                     c.clickTimer = null;
-                    c.isCtrlVisible ? hideCtrl(c) : showCtrlTemp(c);
+                    c.isPBVisible ? hidePB(c) : showPBTemp(c);
                 }, userSettings.clickTimeout);
             } else {
                 clearTimeout(c.clickTimer);
@@ -1885,6 +1885,19 @@
     // #region 全局手势事件接管
     // ============================================================
 
+    function getVteControllerFromTarget(target) {
+        if (!(target instanceof Element)) return null;
+
+        const root = target.closest(`#${ROOT_ID}`);
+        if (!root) return null;
+
+        for (const c of controllers.values()) {
+            if (c.root === root) return c;
+        }
+
+        return null;
+    }
+
     function getEventController(e) {
         if (isVteElement(e.target)) return null;
         return getControllerAtPoint(e.clientX, e.clientY);
@@ -1932,21 +1945,30 @@
 
 
     function onGestureMouseMove(e) {
-        const c = getEventController(e);
+        const vteController = getVteControllerFromTarget(e.target);
+        const c = vteController || getEventController(e);
 
         if (hoverController && hoverController !== c && !hoverController.isDown && !hoverController.isLocked) {
-            hideCtrl(hoverController);
+            hidePB(hoverController);
         }
 
         hoverController = c;
 
         if (!c) return;
+
+        // 鼠标在脚本自己的侧边按钮 / VTE 层上时：
+        // 保持控件显示，不再触发 hideCtrl → showCtrlTemp 循环
+        if (vteController) {
+            clearTimeout(c.pbHideTimer);
+            return;
+        }
+
         if (c.isDown || c.isLocked || e.isTrusted === false) return;
 
         // 移到播放器原生组件上时，不抢事件
         if (isPlayerWidgetTarget(c, e)) return;
 
-        showCtrlTemp(c);
+        showPBTemp(c);
     }
 
 
@@ -2027,7 +2049,7 @@
             shield,
 
             isLocked: false,
-            isCtrlVisible: false,
+            isPBVisible: false,
             expandedButtonIds: new Set(),
 
             // 手势会话状态
@@ -2045,8 +2067,8 @@
             pressTimer: null,
             clickTimer: null,
             toastTimer: null,
-            ctrlKeepTimer: null,
-            ctrlHideTimer: null,
+            pbKeepTimer: null,
+            pbHideTimer: null,
 
             // 全屏状态记忆
             wasFullscreen: false,
@@ -2085,8 +2107,8 @@
         clearTimeout(c.pressTimer);
         clearTimeout(c.clickTimer);
         clearTimeout(c.toastTimer);
-        clearInterval(c.ctrlKeepTimer);
-        clearTimeout(c.ctrlHideTimer);
+        clearInterval(c.pbKeepTimer);
+        clearTimeout(c.pbHideTimer);
         restoreGestureTouchAction(c);
         c.root?.remove();
     }
