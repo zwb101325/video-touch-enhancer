@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.32
+// @version      0.0.33
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1068,7 +1068,7 @@
                     const key = switchRow.dataset.settingKey;
                     userSettings[key] = e.target.checked;
                     saveSettings();
-                    setupButtons(c);
+                    controllers.forEach((controller) => setupButtons(controller));
                     return;
                 }
 
@@ -1077,7 +1077,7 @@
                     const key = selectRow.dataset.settingKey;
                     userSettings[key] = e.target.value;
                     saveSettings();
-                    setupButtons(c);
+                    controllers.forEach((controller) => setupButtons(controller));
                     return;
                 }
             });
@@ -1091,7 +1091,7 @@
                     userSettings[key] = value;
                     numberRow.querySelector(".vte-number-txt").textContent = formatNumberText(value, e.target.step, numberRow.dataset.unit);
                     saveSettings();
-                    setupButtons(c);
+                    controllers.forEach((controller) => setupButtons(controller));
                     return;
                 }
             });
@@ -1223,18 +1223,14 @@
             button.addEventListener("pointerup", blockNativeEvent, true);
             button.addEventListener("click", (e) => {
                 blockNativeEvent(e);
-                const act = button.dataset.action;
-                if (act == "lock") {
+                showCtrlTemp(c);
+                if (button.dataset.action == "lock") {
                     onLockButtonClick(c);
-                    return;
-                }
-                // 其余操作时保持控制层可见，方便连续点击
-                if (!c.isLocked) showCtrlTemp(c);
-                if (act == "menu") {
+                } else if (button.dataset.action == "menu") {
                     onMenuButtonClick(c, button);
-                } else if (act == "backward") {
+                } else if (button.dataset.action == "backward") {
                     onQuickSeek(c, -userSettings.btnSeekStep);
-                } else if (act == "forward") {
+                } else if (button.dataset.action == "forward") {
                     onQuickSeek(c, userSettings.btnSeekStep);
                 }
             }, true);
@@ -1821,7 +1817,7 @@
         `;
         root.appendChild(shield);
 
-        const controller = {
+        const c = {
             video,
             root,
             shield,
@@ -1857,14 +1853,18 @@
             gainNode: null,
         };
 
-        shield.addEventListener("mouseenter", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(controller); }, true);
-        shield.addEventListener("mousemove", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(controller); }, true);
-        shield.addEventListener("mouseleave", (e) => { if (controller.isDown || controller.isLocked) return; if (e && e.isTrusted === false) return; hideCtrl(controller); }, true);
+        shield.addEventListener("mouseenter", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(c); }, true);
+        shield.addEventListener("mousemove", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; showCtrlTemp(c); }, true);
+        shield.addEventListener("mouseleave", (e) => { if (c.isDown || c.isLocked) return; if (e && e.isTrusted === false) return; 
+            const to = e.relatedTarget;
+            if (to && to.nodeType && c.root.contains(to)) return;
+            hideCtrl(c); 
+        }, true);
 
-        shield.addEventListener("pointerdown", (e) => { handleDown(controller, e); try { shield.setPointerCapture(e.pointerId); } catch(err) {} }, true);
-        shield.addEventListener("pointermove", (e) => { handleMove(controller, e); }, true);
-        shield.addEventListener("pointerup", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
-        shield.addEventListener("pointercancel", (e) => { handleUp(controller, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
+        shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
 
         shield.addEventListener("click", (e) => blockNativeEvent(e), true);
         shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
@@ -1872,8 +1872,8 @@
         shield.addEventListener("contextmenu", (e) => blockNativeEvent(e), true);
 
         document.body.appendChild(root);
-        setupButtons(controller);
-        return controller;
+        setupButtons(c);
+        return c;
     }
 
 
