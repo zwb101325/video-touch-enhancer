@@ -31,7 +31,7 @@
             if (tt && typeof tt.createPolicy === "function") {
                 return tt.createPolicy("touch-enhancer-html", { createHTML: (s) => s });
             }
-        } catch(err) {
+        } catch {
             // CSP 的 trusted-types 指令限制了 policy 名单时会走到这里
         }
         return null;
@@ -1861,10 +1861,10 @@
             hideCtrl(c); 
         }, true);
 
-        shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointerdown", (e) => { handleDown(c, e); try { shield.setPointerCapture(e.pointerId); } catch {} }, true);
         shield.addEventListener("pointermove", (e) => { handleMove(c, e); }, true);
-        shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
-        shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch(err) {} }, true);
+        shield.addEventListener("pointerup", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
+        shield.addEventListener("pointercancel", (e) => { handleUp(c, e); try { shield.releasePointerCapture(e.pointerId); } catch {} }, true);
 
         shield.addEventListener("click", (e) => blockNativeEvent(e), true);
         shield.addEventListener("dblclick", (e) => blockNativeEvent(e), true);
@@ -2033,7 +2033,7 @@
         if (primaryVideo && !controllers.has(primaryVideo)) {
             try {
                 controllers.set(primaryVideo, createController(primaryVideo));
-            } catch(err) {}
+            } catch {}
         }
 
         if (controllers.size > 0) startSyncLoop();
