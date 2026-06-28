@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.42
-// @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
+// @version      0.0.43
+// @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
 // @icon         data:image/svg+xml;base64,PHN2ZyB0PSIxNzgyNDMyMTAzMTg1IiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAt aWQ9IjIxNjUiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cGF0aCBkPSJNNTEyIDY0QzI2NS42IDY0IDY0IDI2NS42IDY0IDUxMnMyMDEuNiA0NDggNDQ4IDQ0OCA0NDgtMjAxLjYgNDQ4LTQ0OFM3NTguNCA2NCA1MTIgNjR6TTY5MS4yIDU0NGwtMjU2IDE1Ni44QzQyOC44IDcwNCA0MjIuNCA3MDQgNDE2IDcwNGMtNi40IDAtOS42IDAtMTYtMy4yQzM5MC40IDY5NC40IDM4NCA2ODQuOCAzODQgNjcyTDM4NCAzNTJjMC0xMi44IDYuNC0yMi40IDE2LTI4LjggOS42LTYuNCAyMi40LTYuNCAzMiAwbDI1NiAxNjYuNGM5LjYgNi40IDE2IDE2IDE2IDI4LjhDNzA0IDUyOCA3MDAuOCA1NDAuOCA2OTEuMiA1NDR6IiBwLWlkPSIyMTY2IiBmaWxsPSIjMjU2M0VCIj48L3BhdGg+PC9zdmc+
@@ -1365,10 +1365,8 @@
         
         add(video);
         add(video?.parentElement);
+        add(getPlayerContainer(video));
         add(video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]"));
-        
-        const fullscreenElement = getFullscreenElement();
-        if (fullscreenElement && (fullscreenElement === video || fullscreenElement?.contains(video))) add(fullscreenElement);
         
         add(document.body);
         add(document.documentElement);
@@ -1400,11 +1398,7 @@
             const rect = c.video.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height * 0.1;
-            getMouseEventTargets(c.video).forEach((target) => {
-                sendMouseEvent(target, "mouseenter", x, y);
-                sendMouseEvent(target, "mouseover", x, y);
-                sendMouseEvent(target, "mousemove", x, y);
-            });
+            getMouseEventTargets(c.video).forEach((target) => sendMouseEvent(target, "mousemove", x, y));
             toggleYouTubePB(c.video, true);
         };
 
@@ -1489,8 +1483,6 @@
         if (!c.video) return;
         c.prevX = clientX;
         c.startVal = c.video.currentTime;
-        c.wasPlaying = !c.video.paused;
-        c.video.pause();
         showPB(c);
     }
 
@@ -1507,7 +1499,6 @@
 
     function onSeekEnd(c) {
         if (!c.video) return;
-        if (c.wasPlaying) c.video.play().catch(() => {});
         hidePB(c);
         hideToast(c);
     }
@@ -2037,6 +2028,7 @@
         const elements = [
             c.video,
             c.video?.parentElement,
+            getPlayerContainer(c.video),
             c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
         ];
 
@@ -2054,6 +2046,7 @@
         const elements = [
             c.video,
             c.video?.parentElement,
+            getPlayerContainer(c.video),
             c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
         ];
 
@@ -2096,7 +2089,6 @@
             prevX: 0, prevY: 0,
             startVal: 0,
             originalSpeed: 1.0,
-            wasPlaying: false,
 
             // 计时器
             pressTimer: null,
