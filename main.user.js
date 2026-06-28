@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.41
+// @version      0.0.42
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -73,17 +73,14 @@
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
 
-    const FULLSCREEN_BUTTON_SIZE = 52;
-    const BUTTON_SIZE = 40;
+    // const FULLSCREEN_BUTTON_SIZE = 52;
+    // const BUTTON_SIZE = 40;
+    const BUTTON_SIZE_RATIO = 4;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
-
-    // 视频小于该尺寸时不绑定手势（过滤广告/背景小视频）
     const MIN_VIDEO_WIDTH = 200;
     const MIN_VIDEO_HEIGHT = 120;
-
     const SHIELD_Z_INDEX = "45";
-    const PRIMARY_SCAN_INTERVAL = 1200;
 
     const VERTICAL_ACTIONS = {
         none: "无操作",
@@ -131,6 +128,7 @@
     const controllers = new Map();
     const audioStores = new WeakMap();
     let rafId = null;
+    let scanTimer = null;
 
     const NATIVE_CLICK_BLOCK_DURATION = 500;
 
@@ -534,6 +532,23 @@
             pointer-events: none;
         }
         /* #endregion */
+
+
+        /* #region 鼠标指针 */
+        .vte-cursor-visible,
+        .vte-cursor-visible * {
+            cursor: default !important;
+        }
+
+        .vte-cursor-hidden,
+        .vte-cursor-hidden * {
+            cursor: none !important;
+        }
+
+        .vte-cursor-visible .vte-side-button {
+            cursor: pointer !important;
+        }
+        /* #endregion */
         `;
         (document.head || document.documentElement).appendChild(style);
     }
@@ -729,38 +744,6 @@
     function resetTimeout(timer, callback, delay) {
         clearTimeout(timer);
         return setTimeout(callback, delay);
-    }
-
-
-    function setGestureTouchAction(c) {
-        const elements = [
-            c.video,
-            c.video?.parentElement,
-            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
-        ];
-
-        elements.forEach((el) => {
-            if (!(el instanceof HTMLElement)) return;
-            if (el.dataset.vteOldTouchAction == null) {
-                el.dataset.vteOldTouchAction = el.style.touchAction || "";
-            }
-            el.style.touchAction = "none";
-        });
-    }
-
-
-    function restoreGestureTouchAction(c) {
-        const elements = [
-            c.video,
-            c.video?.parentElement,
-            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
-        ];
-
-        elements.forEach((el) => {
-            if (!(el instanceof HTMLElement)) return;
-            el.style.touchAction = el.dataset.vteOldTouchAction || "";
-            delete el.dataset.vteOldTouchAction;
-        });
     }
 
     // #endregion
@@ -1134,7 +1117,7 @@
             button.addEventListener("pointerup", blockNativeEvent, true);
             button.addEventListener("click", (e) => {
                 blockNativeEvent(e);
-                showPBTemp(c);
+                if (!c.isLocked) showPBTemp(c);
                 if (button.dataset.action == "lock") {
                     onLockButtonClick(c);
                 } else if (button.dataset.action == "menu") {
@@ -1179,7 +1162,7 @@
 
     // 仅更新几何尺寸（每帧调用，开销低）
     function updateButtonsLayout(c) {
-        const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
+        const buttonSize = clamp(c.shield.clientWidth * BUTTON_SIZE_RATIO / 100, 32, 64);
         const buttonSide = c.shield.clientWidth * 0.04;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
@@ -1193,7 +1176,7 @@
 
     // 更新图标与显隐状态（状态变化时调用）
     function updateButtonsState(c) {
-        const buttonSize = isPlayerFullscreen(c) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
+        const buttonSize = clamp(c.shield.clientWidth * BUTTON_SIZE_RATIO / 100, 32, 64);
         const showMainButton = c.isLocked || c.isPBVisible;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
@@ -1271,10 +1254,14 @@
     function onLockButtonClick(c) {
         c.isLocked = !c.isLocked;
         if (c.isLocked) {
+            c.shield.style.pointerEvents = "auto";
             finishCurrentGesture(c);
             hidePB(c);
+            setMouseCursorVisible(c, false);
             showToast(c, lockIcon, "已锁定");
         } else {
+            c.shield.style.pointerEvents = "none";
+            setMouseCursorVisible(c, null);
             showPBTemp(c);
             showToast(c, unlockIcon, "已解锁");
         }
@@ -1311,6 +1298,49 @@
 
 
     // ============================================================
+    // #region 鼠标指针
+    // ============================================================
+
+    function setMouseCursorVisible(c, visible) {
+        if (!c?.video) return;
+        const elements = [
+            c.video,
+            c.video.parentElement,
+            c.shield,
+        ];
+
+        elements.forEach((element) => {
+            if (!(element instanceof Element)) return;
+
+            if (visible === true) {
+                element.classList.add("vte-cursor-visible");
+                element.classList.remove("vte-cursor-hidden");
+            } else if (visible === false) {
+                element.classList.remove("vte-cursor-visible");
+                element.classList.add("vte-cursor-hidden");
+            } else if (visible === null) {
+                element.classList.remove("vte-cursor-visible");
+                element.classList.remove("vte-cursor-hidden");
+            }
+        });
+
+        if (visible === null) {
+            clearTimeout(c.cursorTimer);
+            c.cursorTimer = null;
+        }
+    }
+
+
+    function showMouseCursorTemp(c) {
+        setMouseCursorVisible(c, true);
+        c.cursorTimer = resetTimeout(c.cursorTimer, () => setMouseCursorVisible(c, false), 500);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
     // #region 单指单击：进度条
     // ============================================================
 
@@ -1335,10 +1365,7 @@
         
         add(video);
         add(video?.parentElement);
-        add(video?.closest("[id*='video' i]"));
-        add(video?.closest("[class*='video' i]"));
-        add(video?.closest("[id*='player' i]"));
-        add(video?.closest("[class*='player' i]"));
+        add(video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]"));
         
         const fullscreenElement = getFullscreenElement();
         if (fullscreenElement && (fullscreenElement === video || fullscreenElement?.contains(video))) add(fullscreenElement);
@@ -1362,6 +1389,7 @@
         if (!c.video) return;
         c.isPBVisible = true;
         updateButtonsState(c);
+        setMouseCursorVisible(c, true);
 
         clearInterval(c.pbKeepTimer);
         clearTimeout(c.pbHideTimer);
@@ -1389,6 +1417,7 @@
         if (!c.video) return;
         c.isPBVisible = false;
         updateButtonsState(c);
+        setMouseCursorVisible(c, false);
 
         clearInterval(c.pbKeepTimer);
         clearTimeout(c.pbHideTimer);
@@ -1751,7 +1780,6 @@
         if (!(element instanceof Element)) return false;
 
         const rect = element.getBoundingClientRect();
-
         if (rect.width < 1 || rect.height < 1) return false;
         if (rect.right <= 0 || rect.left >= window.innerWidth) return false;
         if (rect.bottom <= 0 || rect.top >= window.innerHeight) return false;
@@ -1773,7 +1801,7 @@
 
         const videoRect = c.video.getBoundingClientRect();
         const rect = element.getBoundingClientRect();
-        const tolerance = 20;
+        const tolerance = 100;
 
         return Math.abs(rect.left - videoRect.left) <= tolerance &&
             Math.abs(rect.right - videoRect.right) <= tolerance &&
@@ -1805,9 +1833,7 @@
             }
         }
 
-        const fallback = video?.parentElement || null;
-        console.log("[VTE] getPlayerContainer fallback", { container: fallback, video });
-        return fallback;
+        return video?.parentElement || null;
     }
 
 
@@ -1825,14 +1851,6 @@
             if (!isElementVisible(element)) continue;
             if (isSameSizeAsVideoArea(c, element)) continue;
             if (!overlapsVideoArea(c, element)) continue;
-
-            console.log(
-                "[VTE] 放行点击的元素：",
-                element.tagName,
-                element.id ? "#" + element.id : "",
-                element.className ? "." + String(element.className).replace(/\s+/g, ".") : "",
-                element
-            );
 
             return true;
         }
@@ -1875,7 +1893,7 @@
 
     let activeController = null;
     let activePointerId = null;
-    let hoverController = null;
+    let lastMouseController = null;
     let blockNativeClickUntil = 0;
 
 
@@ -1913,19 +1931,20 @@
 
 
     function onGesturePointerMove(e) {
-        if (!activeController || e.pointerId !== activePointerId) return;
+        if (!activeController) return;
+        if (e.pointerId !== activePointerId) return;
         handleMove(activeController, e);
     }
 
 
     function onGesturePointerEnd(e) {
-        if (!activeController || e.pointerId !== activePointerId) return;
+        if (!activeController) return;
+        if (e.pointerId !== activePointerId) return;
 
         const c = activeController;
         const hadGesture = c.gestureType !== "";
 
         handleUp(c, e);
-
         if (hadGesture) blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
 
         activeController = null;
@@ -1934,33 +1953,53 @@
 
 
     function onGestureMouseMove(e) {
-        const shield = e.target instanceof Element ? e.target.closest(`#${SHIELD_ID}`) : null;
-        const vteController = shield ? Array.from(controllers.values()).find((c) => c.shield === shield) : null;
-        const c = vteController || (isVteElement(e.target) ? null : getControllerAtPoint(e.clientX, e.clientY));
+        if (!(e.target instanceof Element)) return;
 
-        if (hoverController && hoverController !== c && !hoverController.isDown && !hoverController.isLocked) hidePB(hoverController);
-        hoverController = c;
+        const hitShield = e.target.closest(`#${SHIELD_ID}`);
+        const c = hitShield ? Array.from(controllers.values()).find((c) => c.shield === hitShield) : getControllerAtPoint(e.clientX, e.clientY);
+        const isSideButton = !!e.target.closest(`.${BUTTON_CLASS}`);
+
+        if (lastMouseController && lastMouseController !== c && !lastMouseController.isDown && !lastMouseController.isLocked)
+            hidePB(lastMouseController);
+        lastMouseController = c;
 
         if (!c) return;
 
-        // 鼠标在脚本自己的侧边按钮 / VTE 层上时：
-        // 保持控件显示，不再触发 hideCtrl → showCtrlTemp 循环
-        if (vteController) {
-            clearTimeout(c.pbHideTimer);
+        if (c.isLocked) {
+            blockNativeEvent(e);
+            if (c.isPBVisible) hidePB(c);
+            showMouseCursorTemp(c);
             return;
         }
 
-        if (c.isDown || c.isLocked || e.isTrusted === false) return;
+        if (isSideButton) {
+            showPB(c);
+            return;
+        }
+
+        if (c.isDown || e.isTrusted === false) return;
         if (isWidgetTarget(c, e)) return;
 
         showPBTemp(c);
     }
 
 
-    // click / dblclick：保持原来的 500ms 手势保护逻辑
-    function onNativeMouseEvent(e) {
-        const c = isVteElement(e.target) ? null : getControllerAtPoint(e.clientX, e.clientY);
+    function onNativeMouseClick(e) {
+        if (!(e.target instanceof Element)) return;
+        if (e.target.closest(`.${BUTTON_CLASS}`)) return;
+
+        const hitShield = e.target.closest(`#${SHIELD_ID}`);
+        const c = hitShield ? Array.from(controllers.values()).find((controller) => controller.shield === hitShield) : getControllerAtPoint(e.clientX, e.clientY);
+
         if (!c) return;
+
+        if (c.isLocked) {
+            blockNativeEvent(e);
+            if (c.isPBVisible) hidePB(c);
+            showMouseCursorTemp(c);
+            return;
+        }
+
         if (isWidgetTarget(c, e)) return;
         if (Date.now() > blockNativeClickUntil) return;
         blockNativeEvent(e);
@@ -1977,9 +2016,11 @@
         document.addEventListener("pointercancel", onGesturePointerEnd, true);
 
         document.addEventListener("mousemove", onGestureMouseMove, true);
+        document.addEventListener("mousedown", onNativeMouseClick, true);
+        document.addEventListener("mouseup", onNativeMouseClick, true);
 
-        document.addEventListener("click", onNativeMouseEvent, true);
-        document.addEventListener("dblclick", onNativeMouseEvent, true);
+        document.addEventListener("click", onNativeMouseClick, true);
+        document.addEventListener("dblclick", onNativeMouseClick, true);
         document.addEventListener("auxclick", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
         document.addEventListener("contextmenu", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
     }
@@ -1991,6 +2032,38 @@
     // ============================================================
     // #region 控制器 controller
     // ============================================================
+
+    function setTouchAction(c) {
+        const elements = [
+            c.video,
+            c.video?.parentElement,
+            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
+        ];
+
+        elements.forEach((element) => {
+            if (!(element instanceof HTMLElement)) return;
+            if (element.dataset.vteOldTouchAction == null) {
+                element.dataset.vteOldTouchAction = element.style.touchAction || "";
+            }
+            element.style.touchAction = "none";
+        });
+    }
+
+
+    function restoreTouchAction(c) {
+        const elements = [
+            c.video,
+            c.video?.parentElement,
+            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
+        ];
+
+        elements.forEach((element) => {
+            if (!(element instanceof HTMLElement)) return;
+            element.style.touchAction = element.dataset.vteOldTouchAction || "";
+            delete element.dataset.vteOldTouchAction;
+        });
+    }
+
 
     function createController(video) {
         const shield = document.createElement("div");
@@ -2011,7 +2084,7 @@
             shield,
 
             isLocked: false,
-            isPBVisible: false,
+            isPBVisible: true,
             expandedButtonIds: new Set(),
 
             // 手势会话状态
@@ -2031,6 +2104,7 @@
             toastTimer: null,
             pbKeepTimer: null,
             pbHideTimer: null,
+            cursorTimer: null,
 
             // 全屏状态记忆
             wasFullscreen: false,
@@ -2041,7 +2115,7 @@
             gainNode: null,
         };
 
-        setGestureTouchAction(c);
+        setTouchAction(c);
         document.body.appendChild(shield);
         setupButtons(c);
         return c;
@@ -2054,7 +2128,9 @@
         clearTimeout(c.toastTimer);
         clearInterval(c.pbKeepTimer);
         clearTimeout(c.pbHideTimer);
-        restoreGestureTouchAction(c);
+        clearTimeout(c.cursorTimer);
+        setMouseCursorVisible(c, null);
+        restoreTouchAction(c);
         c.shield?.remove();
     }
 
@@ -2110,19 +2186,19 @@
 
 
     function selectPrimaryVideo() {
-        let selected = null;
+        let selectedVideo = null;
         let selectedScore = -1;
 
         document.querySelectorAll("video").forEach((video) => {
             if (!isVideoEligible(video)) return;
             const score = getVideoScore(video);
             if (score > selectedScore) {
-                selected = video;
+                selectedVideo = video;
                 selectedScore = score;
             }
         });
 
-        return selected;
+        return selectedVideo;
     }
 
     // #endregion
@@ -2130,7 +2206,7 @@
 
 
     // ============================================================
-    // #region 布局同步与全屏处理
+    // #region 初始化
     // ============================================================
 
     function syncLayout() {
@@ -2184,39 +2260,24 @@
     }
 
 
-    function startSyncLoop() {
-        if (rafId == null) rafId = requestAnimationFrame(syncLayout);
-    }
-
-    // #endregion
-
-
-
-    // ============================================================
-    // #region 初始化
-    // ============================================================
-
     function scan() {
         const primaryVideo = selectPrimaryVideo();
 
-        controllers.forEach((controller, video) => {
+        controllers.forEach((c, video) => {
             if (!video.isConnected || video !== primaryVideo) {
-                teardownController(controller);
+                teardownController(c);
                 controllers.delete(video);
             }
         });
 
-        if (primaryVideo && !controllers.has(primaryVideo)) {
-            try {
-                controllers.set(primaryVideo, createController(primaryVideo));
-            } catch {}
-        }
+        if (primaryVideo && !controllers.has(primaryVideo)) 
+            controllers.set(primaryVideo, createController(primaryVideo));
 
-        if (controllers.size > 0) startSyncLoop();
+        if (controllers.size > 0 && rafId == null) 
+            rafId = requestAnimationFrame(syncLayout);
     }
 
 
-    let scanTimer = null;
     function scheduleScan() {
         if (scanTimer) return;
         scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 250);
@@ -2225,11 +2286,8 @@
 
     const observer = new MutationObserver(scheduleScan);
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(scheduleScan, PRIMARY_SCAN_INTERVAL);
+    setInterval(scheduleScan, 3000);
 
-    ["fullscreenchange", "webkitfullscreenchange"].forEach((ev) =>
-        document.addEventListener(ev, () => controllers.forEach((c) => updateButtonsState(c)), true)
-    );
     window.addEventListener("resize", scheduleScan);
     window.addEventListener("pageshow", scheduleScan);
     window.addEventListener("popstate", scheduleScan);
