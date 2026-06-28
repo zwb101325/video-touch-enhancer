@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.40
+// @version      0.0.41
 // @description  为主流网页视频播放器添加触屏手势（双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -533,23 +533,6 @@
             display: block;
             pointer-events: none;
         }
-
-        /* .html5-video-player.vte-youtube-controls-visible .ytp-chrome-bottom,
-        .html5-video-player.vte-youtube-controls-visible .ytp-chrome-top,
-        .html5-video-player.vte-youtube-controls-visible .ytp-gradient-bottom,
-        .html5-video-player.vte-youtube-controls-visible .ytp-gradient-top {
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-
-        .html5-video-player.vte-youtube-controls-hidden .ytp-chrome-bottom,
-        .html5-video-player.vte-youtube-controls-hidden .ytp-chrome-top,
-        .html5-video-player.vte-youtube-controls-hidden .ytp-gradient-bottom,
-        .html5-video-player.vte-youtube-controls-hidden .ytp-gradient-top {
-            opacity: 0 !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-        } */
         /* #endregion */
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -1367,7 +1350,14 @@
         return targets;
     }
 
-    
+
+    function toggleYouTubePB(video, visible) {
+        const player = video.closest(".html5-video-player, #movie_player");
+        if (!player) return;
+        player.classList.toggle("ytp-autohide", !visible);
+    }
+
+
     function showPB(c) {
         if (!c.video) return;
         c.isPBVisible = true;
@@ -1387,6 +1377,7 @@
                 sendMouseEvent(target, "mouseover", x, y);
                 sendMouseEvent(target, "mousemove", x, y);
             });
+            toggleYouTubePB(c.video, true);
         };
 
         moveMouse();
@@ -1411,6 +1402,7 @@
             sendMouseEvent(target, "mouseleave", x, y);
             sendMouseEvent(target, "mouseout", x, y);
         });
+        toggleYouTubePB(c.video, false);
     }
 
 
@@ -1781,12 +1773,12 @@
 
         const videoRect = c.video.getBoundingClientRect();
         const rect = element.getBoundingClientRect();
-        const tolerance = 3;
+        const tolerance = 20;
 
-        return Math.abs(rect.width - videoRect.width) <= tolerance &&
-            Math.abs(rect.height - videoRect.height) <= tolerance &&
-            Math.abs(rect.left - videoRect.left) <= tolerance &&
-            Math.abs(rect.top - videoRect.top) <= tolerance;
+        return Math.abs(rect.left - videoRect.left) <= tolerance &&
+            Math.abs(rect.right - videoRect.right) <= tolerance &&
+            Math.abs(rect.top - videoRect.top) <= tolerance &&
+            Math.abs(rect.bottom - videoRect.bottom) <= tolerance;
     }
 
 
