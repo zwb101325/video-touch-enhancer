@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.47
+// @version      0.0.48
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -75,8 +75,8 @@
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
 
-    const minButtonSize = 40;
-    const maxButtonSize = 60;
+    const MIN_BUTTON_SIZE = 40;
+    const MAX_BUTTON_SIZE = 60;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
     const MIN_VIDEO_WIDTH = 200;
@@ -720,16 +720,14 @@
     }
 
 
-    // 该控制器对应的视频是否处于（原生）全屏状态
     function isPlayerFullscreen(c) {
         const fe = getFullscreenElement();
         return !!(fe && (fe === c.video || fe.contains(c.video)));
     }
 
 
-    // 以遮罩层（覆盖在视频上的容器）为基准判断左右半屏
-    function getGestureZone(refEl, clientX) {
-        const rect = refEl.getBoundingClientRect();
+    function getGestureZone(shield, clientX) {
+        const rect = shield.getBoundingClientRect();
         const localX = clientX - rect.left;
         return localX < rect.width / 2 ? "left" : "right";
     }
@@ -748,16 +746,25 @@
     }
 
 
-    function getPlayerContainer(video) {
+    function getVideoContainer(video) {
         for (let node = video?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
             for (const child of node.children) {
                 if (child === video || child.contains(video)) continue;
                 return node;
-                // if (isVisibleElement(child)) return node;
             }
         }
 
         return video?.parentElement || null;
+    }
+
+
+    function getVideoRelatedElements(video) {
+        return [
+            video,
+            video?.parentElement,
+            getVideoContainer(video),
+            video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
+        ];
     }
 
     // #endregion
@@ -1181,7 +1188,7 @@
     function updateButtonsLayout(c) {
         const buttonSizeRatio = userSettings.buttonSizeRatio ?? DEFAULT_SETTINGS.buttonSizeRatio;
         const buttonSideRatio = userSettings.buttonSideRatio ?? DEFAULT_SETTINGS.buttonSideRatio;   
-        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, minButtonSize, maxButtonSize);
+        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, MIN_BUTTON_SIZE, MAX_BUTTON_SIZE);
         const buttonSide = c.shield.clientWidth * buttonSideRatio / 100;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
@@ -1196,7 +1203,7 @@
     // 更新图标与显隐状态（状态变化时调用）
     function updateButtonsState(c) {
         const buttonSizeRatio = userSettings.buttonSizeRatio ?? DEFAULT_SETTINGS.buttonSizeRatio;
-        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, minButtonSize, maxButtonSize);
+        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, MIN_BUTTON_SIZE, MAX_BUTTON_SIZE);
         const showMainButton = c.isLocked || c.isPBVisible;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
@@ -1379,23 +1386,6 @@
     }
 
 
-    function getMouseEventTargets(video) {
-        const targets = [];
-        const add = (element) => { if (element?.dispatchEvent && !targets.includes(element)) targets.push(element); };
-        
-        add(video);
-        add(video?.parentElement);
-        add(getPlayerContainer(video));
-        add(video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]"));
-        
-        add(document.body);
-        add(document.documentElement);
-        add(document);
-
-        return targets;
-    }
-
-
     function toggleYouTubePB(video, visible) {
         const player = video.closest(".html5-video-player, #movie_player");
         if (!player) return;
@@ -1418,7 +1408,7 @@
             const rect = c.video.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height * 0.1;
-            getMouseEventTargets(c.video).forEach((target) => sendMouseEvent(target, "mousemove", x, y));
+            getVideoRelatedElements(c.video).forEach((target) => sendMouseEvent(target, "mousemove", x, y));
             toggleYouTubePB(c.video, true);
         };
 
@@ -1441,7 +1431,7 @@
         const rect = c.video.getBoundingClientRect();
         const x = rect.right + 10;
         const y = rect.bottom + 10;
-        getMouseEventTargets(c.video).forEach((target) => {
+        getVideoRelatedElements(c.video).forEach((target) => {
             sendMouseEvent(target, "mouseleave", x, y);
             sendMouseEvent(target, "mouseout", x, y);
         });
@@ -2021,14 +2011,7 @@
     // ============================================================
 
     function setTouchAction(c) {
-        const elements = [
-            c.video,
-            c.video?.parentElement,
-            getPlayerContainer(c.video),
-            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
-        ];
-
-        elements.forEach((element) => {
+        getVideoRelatedElements(c.video).forEach((element) => {
             if (!(element instanceof HTMLElement)) return;
             if (element.dataset.vteOldTouchAction == null) {
                 element.dataset.vteOldTouchAction = element.style.touchAction || "";
@@ -2039,14 +2022,7 @@
 
 
     function restoreTouchAction(c) {
-        const elements = [
-            c.video,
-            c.video?.parentElement,
-            getPlayerContainer(c.video),
-            c.video?.closest("[id*='player' i], [class*='player' i], [id*='video' i], [class*='video' i]")
-        ];
-
-        elements.forEach((element) => {
+        getVideoRelatedElements(c.video).forEach((element) => {
             if (!(element instanceof HTMLElement)) return;
             element.style.touchAction = element.dataset.vteOldTouchAction || "";
             delete element.dataset.vteOldTouchAction;
