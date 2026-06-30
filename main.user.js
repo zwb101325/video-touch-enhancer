@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.46
+// @version      0.0.47
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -75,14 +75,14 @@
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
 
-    // const FULLSCREEN_BUTTON_SIZE = 52;
-    // const BUTTON_SIZE = 40;
-    const BUTTON_SIZE_RATIO = 4;
+    const minButtonSize = 40;
+    const maxButtonSize = 60;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
     const MIN_VIDEO_WIDTH = 200;
     const MIN_VIDEO_HEIGHT = 120;
     const SHIELD_Z_INDEX = "45";
+    const NATIVE_CLICK_BLOCK_DURATION = 500;
 
     const VERTICAL_ACTIONS = {
         none: "无操作",
@@ -123,7 +123,9 @@
         // 按钮区域
         leftButtonAction: "lock",
         rightButtonAction: "menu",
-        btnSeekStep: 10,
+        buttonSizeRatio: 5,
+        buttonSideRatio: 5,
+        btnSeekStep: 5,
     };
 
     let userSettings = loadSettings();
@@ -131,9 +133,6 @@
     const audioStores = new WeakMap();
     let rafId = null;
     let scanTimer = null;
-
-    const NATIVE_CLICK_BLOCK_DURATION = 500;
-
 
     // #endregion
 
@@ -753,7 +752,8 @@
         for (let node = video?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
             for (const child of node.children) {
                 if (child === video || child.contains(video)) continue;
-                if (isVisibleElement(child)) return node;
+                return node;
+                // if (isVisibleElement(child)) return node;
             }
         }
 
@@ -928,7 +928,9 @@
                             <summary>${buildSummaryRow("按钮区域", buttonAreaIcon, "vte-summary-icon-red")}</summary>
                             ${buildSelectRow("左侧", "leftButtonAction", BUTTON_ACTIONS)}
                             ${buildSelectRow("右侧", "rightButtonAction", BUTTON_ACTIONS)}
-                            ${buildNumberRow("按钮跳转时长", "btnSeekStep", 1, 30, 1, "s")}
+                            ${buildNumberRow("按钮大小", "buttonSizeRatio", 1, 10, 0.5, "%")}
+                            ${buildNumberRow("按钮边距", "buttonSideRatio", 1, 10, 0.5, "%")}
+                            ${buildNumberRow("跳转时长", "btnSeekStep", 1, 30, 1, "s")}
                         </details>
 
                         <div class="vte-footer">
@@ -1177,8 +1179,10 @@
 
     // 仅更新几何尺寸（每帧调用，开销低）
     function updateButtonsLayout(c) {
-        const buttonSize = clamp(c.shield.clientWidth * BUTTON_SIZE_RATIO / 100, 32, 64);
-        const buttonSide = c.shield.clientWidth * 0.04;
+        const buttonSizeRatio = userSettings.buttonSizeRatio ?? DEFAULT_SETTINGS.buttonSizeRatio;
+        const buttonSideRatio = userSettings.buttonSideRatio ?? DEFAULT_SETTINGS.buttonSideRatio;   
+        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, minButtonSize, maxButtonSize);
+        const buttonSide = c.shield.clientWidth * buttonSideRatio / 100;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             button.style.width = `${buttonSize}px`;
@@ -1191,7 +1195,8 @@
 
     // 更新图标与显隐状态（状态变化时调用）
     function updateButtonsState(c) {
-        const buttonSize = clamp(c.shield.clientWidth * BUTTON_SIZE_RATIO / 100, 32, 64);
+        const buttonSizeRatio = userSettings.buttonSizeRatio ?? DEFAULT_SETTINGS.buttonSizeRatio;
+        const buttonSize = clamp(c.shield.clientWidth * buttonSizeRatio / 100, minButtonSize, maxButtonSize);
         const showMainButton = c.isLocked || c.isPBVisible;
 
         c.shield.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
