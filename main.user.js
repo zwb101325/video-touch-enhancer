@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.49
+// @version      0.0.50
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1385,30 +1385,26 @@
         } catch {}
     }
 
-    
+
     // 作为模拟鼠标事件被 isTrusted 校验拦截时的原生控制栏兜底方案。
     function toggleNativePB(video, visible) {
         const rules = [
             {
                 playerSelector: ".html5-video-player, #movie_player",
                 className: "ytp-autohide",
-                activeWhenVisible: false
+                activeWhenVisible: false,
             },
             {
                 playerSelector: ".dplayer",
                 className: "dplayer-hide-controller",
-                activeWhenVisible: false
+                activeWhenVisible: false,
             }
         ];
 
         rules.forEach((rule) => {
             const player = video.closest(rule.playerSelector);
             if (!player) return;
-
-            player.classList.toggle(
-                rule.className,
-                rule.activeWhenVisible ? visible : !visible
-            );
+            player.classList.toggle(rule.className, rule.activeWhenVisible ? visible : !visible);
         });
     }
 
@@ -1892,9 +1888,10 @@
 
     let activeController = null;
     let activePointerId = null;
+    let activeTouchId = null;
     let lastMouseController = null;
     let blockNativeClickUntil = 0;
-
+    let ignoreTouchPointerUntil = 0;
 
     // 根据坐标找到当前视频区域对应的控制器。
     function getControllerAtPoint(x, y) {
@@ -1910,7 +1907,114 @@
     }
 
 
-    function onGesturePointerDown(e) {
+    function getTouchById(touchList, id) {
+        for (let i = 0; i < touchList.length; i += 1) {
+            if (touchList[i].identifier === id) return touchList[i];
+        }
+        return null;
+    }
+
+
+    function makeTouchGestureEvent(e, touch) {
+        return {
+            target: e.target,
+            type: e.type,
+            isPrimary: true,
+            button: 0,
+            buttons: e.type === "touchend" || e.type === "touchcancel" ? 0 : 1,
+            pointerId: touch.identifier,
+            pointerType: "touch",
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            preventDefault: () => { if (e.cancelable) e.preventDefault(); },
+            stopPropagation: () => e.stopPropagation(),
+            stopImmediatePropagation: () => e.stopImmediatePropagation(),
+        };
+    }
+
+
+    function onTouchStart(e) {
+        const touch = e.changedTouches[0] || e.touches[0];
+        if (!touch) return;
+
+        if (activeController) {
+            if (getControllerAtPoint(touch.clientX, touch.clientY) === activeController) {
+                blockNativeEvent(e);
+                if (activeTouchId == null && e.touches.length === 1) {
+                    activeTouchId = touch.identifier;
+                    activePointerId = null;
+                    ignoreTouchPointerUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+                }
+            }
+            return;
+        }
+
+        if (e.touches.length !== 1) return;
+        if (isVteElement(e.target)) return;
+
+        const gestureEvent = makeTouchGestureEvent(e, touch);
+        const c = getControllerAtPoint(touch.clientX, touch.clientY);
+        if (!c) return;
+        if (isWidgetTarget(c, gestureEvent)) return;
+
+        activeController = c;
+        activeTouchId = touch.identifier;
+        activePointerId = null;
+        blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+        ignoreTouchPointerUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+
+        handleDown(c, gestureEvent);
+    }
+
+
+    function onTouchMove(e) {
+        if (!activeController || activeTouchId == null) return;
+
+        const touch = getTouchById(e.touches, activeTouchId) ||
+            getTouchById(e.changedTouches, activeTouchId);
+        if (!touch) return;
+
+        handleMove(activeController, makeTouchGestureEvent(e, touch));
+    }
+
+
+    function onTouchEnd(e) {
+        if (!activeController || activeTouchId == null) return;
+
+        const touch = getTouchById(e.changedTouches, activeTouchId);
+        if (!touch) return;
+
+        const c = activeController;
+        const hadGesture = c.gestureType !== "";
+
+        if (e.type === "touchcancel") {
+            blockNativeEvent(e);
+            finishCurrentGesture(c);
+        } else {
+            handleUp(c, makeTouchGestureEvent(e, touch));
+        }
+
+        if (hadGesture) blockNativeClickUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+        ignoreTouchPointerUntil = Date.now() + NATIVE_CLICK_BLOCK_DURATION;
+
+        activeController = null;
+        activePointerId = null;
+        activeTouchId = null;
+    }
+
+
+    function onPointerDown(e) {
+        if (e.pointerType === "touch" && activeTouchId != null) {
+            blockNativeEvent(e);
+            return;
+        }
+
+        if (e.pointerType === "touch" && Date.now() < ignoreTouchPointerUntil) {
+            const c = getControllerAtPoint(e.clientX, e.clientY);
+            if (c && !isWidgetTarget(c, e)) blockNativeEvent(e);
+            return;
+        }
+
         if (!e.isPrimary || e.button === 2) return;
         if (isVteElement(e.target)) return;
         
@@ -1927,14 +2031,22 @@
     }
 
 
-    function onGesturePointerMove(e) {
+    function onPointerMove(e) {
+        if (e.pointerType === "touch" && activeTouchId != null) {
+            blockNativeEvent(e);
+            return;
+        }
         if (!activeController) return;
         if (e.pointerId !== activePointerId) return;
         handleMove(activeController, e);
     }
 
 
-    function onGesturePointerEnd(e) {
+    function onPointerEnd(e) {
+        if (e.pointerType === "touch" && activeTouchId != null) {
+            blockNativeEvent(e);
+            return;
+        }
         if (!activeController) return;
         if (e.pointerId !== activePointerId) return;
 
@@ -1949,7 +2061,7 @@
     }
 
 
-    function onGestureMouseMove(e) {
+    function onMouseMove(e) {
         if (!(e.target instanceof Element)) return;
 
         const hitShield = e.target.closest(`#${SHIELD_ID}`);
@@ -1981,7 +2093,7 @@
     }
 
 
-    function onNativeMouseClick(e) {
+    function onMouseClick(e) {
         if (!(e.target instanceof Element)) return;
         if (e.target.closest(`.${BUTTON_CLASS}`)) return;
 
@@ -2007,19 +2119,24 @@
         if (bindGestureEvents.bound) return;
         bindGestureEvents.bound = true;
 
-        document.addEventListener("pointerdown", onGesturePointerDown, true);
-        document.addEventListener("pointermove", onGesturePointerMove, true);
-        document.addEventListener("pointerup", onGesturePointerEnd, true);
-        document.addEventListener("pointercancel", onGesturePointerEnd, true);
+        win.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+        win.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+        win.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+        win.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
 
-        document.addEventListener("mousemove", onGestureMouseMove, true);
-        document.addEventListener("mousedown", onNativeMouseClick, true);
-        document.addEventListener("mouseup", onNativeMouseClick, true);
+        win.addEventListener("pointerdown", onPointerDown, true);
+        win.addEventListener("pointermove", onPointerMove, true);
+        win.addEventListener("pointerup", onPointerEnd, true);
+        win.addEventListener("pointercancel", onPointerEnd, true);
 
-        document.addEventListener("click", onNativeMouseClick, true);
-        document.addEventListener("dblclick", onNativeMouseClick, true);
-        document.addEventListener("auxclick", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
-        document.addEventListener("contextmenu", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
+        win.addEventListener("mousemove", onMouseMove, true);
+        win.addEventListener("mousedown", onMouseClick, true);
+        win.addEventListener("mouseup", onMouseClick, true);
+
+        win.addEventListener("click", onMouseClick, true);
+        win.addEventListener("dblclick", onMouseClick, true);
+        win.addEventListener("auxclick", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
+        win.addEventListener("contextmenu", (e) => { if (getControllerAtPoint(e.clientX, e.clientY)) blockNativeEvent(e); }, true);
     }
 
     // #endregion
