@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.45
+// @version      0.0.46
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -13,6 +13,8 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @license      MIT
+// @downloadURL https://update.greasyfork.org/scripts/584363/Video%20Touch%20Enhancer.user.js
+// @updateURL https://update.greasyfork.org/scripts/584363/Video%20Touch%20Enhancer.meta.js
 // ==/UserScript==
 
 (function() {
@@ -744,6 +746,18 @@
     function resetTimeout(timer, callback, delay) {
         clearTimeout(timer);
         return setTimeout(callback, delay);
+    }
+
+
+    function getPlayerContainer(video) {
+        for (let node = video?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+            for (const child of node.children) {
+                if (child === video || child.contains(video)) continue;
+                if (isVisibleElement(child)) return node;
+            }
+        }
+
+        return video?.parentElement || null;
     }
 
     // #endregion
@@ -1760,15 +1774,35 @@
     // #region 控件命中与放行判断
     // ============================================================
 
-    // 判断元素是否属于脚本自己的遮罩、按钮或设置面板。
     function isVteElement(element) {
         if (!(element instanceof Element)) return false;
         return !!element.closest(`#${SHIELD_ID}, #${SETTINGS_PANEL_ID}`);
     }
 
 
-    // 判断元素当前是否可见且能接收指针事件。
-    function isElementVisible(element) {
+    function isSubtitleElement(element) {
+        if (!(element instanceof Element)) return false;
+
+        // 如果它本身是按钮/链接/输入控件，不要当字幕排除，避免误伤字幕开关按钮。
+        if (element.closest("button, a[href], input, select, textarea, [role='button'], [role='link'], [tabindex]:not([tabindex='-1'])")) return false;
+
+        return !!element.closest([
+            "[id*='caption' i]",
+            "[class*='caption' i]",
+            "[data-purpose*='caption' i]",
+            "[id*='subtitle' i]",
+            "[class*='subtitle' i]",
+            "[data-purpose*='subtitle' i]",
+            "[id*='text-track' i]",
+            "[class*='text-track' i]",
+            "[class*='shaka-text' i]",
+            "[class*='ytp-caption' i]",
+            "[class*='vjs-text-track' i]"
+        ].join(","));
+    }
+
+
+    function isVisibleElement(element) {
         if (!(element instanceof Element)) return false;
 
         const rect = element.getBoundingClientRect();
@@ -1804,7 +1838,6 @@
     }
 
 
-    // 判断元素矩形是否和视频画面区域发生重叠。
     function overlapsVideoArea(c, element) {
         if (!c?.video || !(element instanceof Element)) return false;
 
@@ -1818,63 +1851,20 @@
     }
 
 
-    // 从 video 向上寻找最近的播放器交互容器。
-    function getPlayerContainer(video) {
-        for (let node = video?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
-            for (const child of node.children) {
-                if (child === video || child.contains(video)) continue;
-                if (isElementVisible(child)) return node;
-            }
-        }
-
-        return video?.parentElement || null;
-    }
-
-
     // 判断当前点击是否命中了视频区域内应放行的原生控件。
     function isWidgetTarget(c, e) {
-        const container = getPlayerContainer(c.video);
-        if (!container) return false;
-
         const elements = document.elementsFromPoint(e.clientX, e.clientY);
         for (const element of elements) {
-            if (!(element instanceof Element)) continue;
-            if (isVteElement(element)) continue;
-            if (element === c.video || element.contains(c.video)) continue;
-            if (!container.contains(element)) continue;
-            if (!isElementVisible(element)) continue;
-            if (isSameSizeAsVideoArea(c, element)) continue;
-            if (!overlapsVideoArea(c, element)) continue;
-
-            return true;
+            if (!(element instanceof Element)) continue;                    // 排除非 DOM 元素
+            if (isVteElement(element)) continue;                            // 排除脚本自己创建的元素
+            if (element === c.video || element.contains(c.video)) continue; // 排除 video 本身，以及包含 video 的容器
+            if (isSubtitleElement(element)) continue;                       // 排除字幕显示层
+            if (!isVisibleElement(element)) continue;                       // 排除不可见或不能接收指针事件的元素
+            if (isSameSizeAsVideoArea(c, element)) continue;                // 排除尺寸和位置几乎等同于视频区域的覆盖层
+            if (!overlapsVideoArea(c, element)) continue;                   // 排除没有和视频区域重叠的元素
+            return true; 
         }
-        return false;
-    }
-
-
-    function debugClickElement(c, e, label = "click") {
-        console.groupCollapsed(`[VTE] ${label} hit test`);
-
-        console.log("event:", e.type);
-        console.log("x/y:", e.clientX, e.clientY);
-        console.log("eventTarget:", e.target);
-        console.log("video:", c?.video);
-
-        document.elementsFromPoint(e.clientX, e.clientY).forEach((el, index) => {
-            console.log(index, {
-                tag: el.tagName,
-                id: el.id,
-                className: String(el.className),
-                role: el.getAttribute?.("role"),
-                ariaLabel: el.getAttribute?.("aria-label"),
-                dataPurpose: el.getAttribute?.("data-purpose"),
-                pointerEvents: getComputedStyle(el).pointerEvents,
-                rect: el.getBoundingClientRect(),
-                element: el,
-            });
-        });
-
-        console.groupEnd();
+        return false; 
     }
 
     // #endregion
@@ -1911,8 +1901,6 @@
         
         const c = getControllerAtPoint(e.clientX, e.clientY);
         if (!c) return;
-
-        debugClickElement(c, e, "pointerdown");
 
         if (isWidgetTarget(c, e)) return;
 
