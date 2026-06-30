@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.48
+// @version      0.0.49
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1385,11 +1385,31 @@
         } catch {}
     }
 
+    
+    // 作为模拟鼠标事件被 isTrusted 校验拦截时的原生控制栏兜底方案。
+    function toggleNativePB(video, visible) {
+        const rules = [
+            {
+                playerSelector: ".html5-video-player, #movie_player",
+                className: "ytp-autohide",
+                activeWhenVisible: false
+            },
+            {
+                playerSelector: ".dplayer",
+                className: "dplayer-hide-controller",
+                activeWhenVisible: false
+            }
+        ];
 
-    function toggleYouTubePB(video, visible) {
-        const player = video.closest(".html5-video-player, #movie_player");
-        if (!player) return;
-        player.classList.toggle("ytp-autohide", !visible);
+        rules.forEach((rule) => {
+            const player = video.closest(rule.playerSelector);
+            if (!player) return;
+
+            player.classList.toggle(
+                rule.className,
+                rule.activeWhenVisible ? visible : !visible
+            );
+        });
     }
 
 
@@ -1409,7 +1429,7 @@
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height * 0.1;
             getVideoRelatedElements(c.video).forEach((target) => sendMouseEvent(target, "mousemove", x, y));
-            toggleYouTubePB(c.video, true);
+            toggleNativePB(c.video, true);
         };
 
         moveMouse();
@@ -1435,7 +1455,7 @@
             sendMouseEvent(target, "mouseleave", x, y);
             sendMouseEvent(target, "mouseout", x, y);
         });
-        toggleYouTubePB(c.video, false);
+        toggleNativePB(c.video, false);
     }
 
 
