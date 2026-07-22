@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Touch Enhancer
 // @namespace    http://tampermonkey.net/
-// @version      0.0.52
+// @version      0.0.53
 // @description  为主流网页视频播放器添加触屏手势（单击/双击/长按/横滑/竖滑），并提供可视化设置面板
 // @author       You
 // @match        *://*/*
@@ -1329,6 +1329,9 @@
 
     function setMouseCursorVisible(c, visible) {
         if (!c?.video) return;
+
+        visible = null; // 新增：禁用脚本对鼠标指针显隐的控制, 目前有bug
+
         const elements = [
             c.video,
             c.video.parentElement,
